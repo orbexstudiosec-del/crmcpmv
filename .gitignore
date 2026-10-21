@@ -1,0 +1,49 @@
+# deps
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# turbo
+.turbo/
+
+# env & secrets
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+certs/
+
+# logs
+*.log
+npm-debug.log*
+
+# os / editor
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# prisma
+packages/db/prisma/*.db
+
+.gitmsg.tmp
+
+# archivos subidos por los usuarios
+apps/api/uploads/
+
+# copia de referencia de Databex (no forma parte del producto)
+_referencia/
+
+# base de datos local de desarrollo (Postgres embebido)
+.dev/
+
+# configuración local de Claude Code (permisos de esta máquina)
+.claude/settings.local.json

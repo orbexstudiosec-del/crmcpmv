@@ -1,0 +1,748 @@
+// CRM omnicanal de una sola empresa por instalación.
+// Todas las tablas de negocio cuelgan de Organization y se filtran por organizationId:
+// el instalador crea una única organización, pero el filtro se mantiene en todas las consultas.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  TENANCY & ACCESO                                             ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+/// La empresa dueña de esta instalación (una sola fila).
+model Organization {
+  id                    String   @id @default(cuid())
+  slug                  String   @unique // subdominio / identificador en URL
+  nombre                String
+  etiquetasConversacion Json? // nombre y color personalizados por estado de conversación: { ABIERTA: {label,color}, PENDIENTE: {...}, RESUELTA: {...} }
+  /// Cuántos prospectos aprobados se acumulan por agencia antes de enviar el lote por correo
+  /// al jefe de esa agencia automáticamente. El envío manual ignora este número.
+  umbralLoteRiesgo      Int      @default(10)
+  pipelineEtapas        Json? // lista completa y ordenada del embudo de Oportunidades (reemplaza al enum fijo): [{id,label,color,descripcion,tipo:"ABIERTA"|"GANADA"|"PERDIDA"}, ...]. null = usa las 6 etapas por defecto (ver ETAPAS_PIPELINE_DEFAULT en apps/web/lib/crm.ts). El orden del arreglo ES el orden de las columnas del Kanban; `tipo` es lo que usan dashboard/reportes para calcular tasa de cierre en vez de comparar contra el nombre literal "GANADA", así una etapa se puede renombrar o incluso borrar sin romper esas métricas mientras quede al menos otra con ese tipo.
+  createdAt             DateTime @default(now())
+  updatedAt             DateTime @updatedAt
+
+  memberships       Membership[]
+  departamentos     Departamento[]
+  sucursales        Sucursal[]
+  clientes          Cliente[]
+  leads             Lead[]
+  formulariosLead   FormularioLead[]
+  oportunidades     Oportunidad[]
+  actividades       Actividad[]
+  campanas          Campana[]
+  integraciones     IntegracionCanal[]
+  conversaciones    Conversacion[]
+  botFlows          BotFlow[]
+  botFlowRuns       BotFlowRun[]
+  notificaciones    Notificacion[]
+  analisisRiesgo    AnalisisRiesgo[]
+
+  @@index([slug])
+}
+
+/// Marca blanca de esta instalación: el nombre con el que el CRM se presenta (pestaña del
+/// navegador, login, menú, correos). El instalador la crea desde APP_NAME y después se edita
+/// en Configuración. Fila única, id fijo "singleton".
+model Marca {
+  id            String   @id @default("singleton")
+  nombre        String
+  /// Color principal en hex (#RRGGBB). null = el color por defecto del tema.
+  colorPrimario String?
+  /// Segundo color de la marca (acentos y resaltados), en hex. null = se deriva del principal.
+  colorSecundario String?
+  /// Logo horizontal para fondo oscuro (menú lateral, acceso), como data URL. null = se
+  /// muestra el nombre como texto.
+  logo          String?  @db.Text
+  /// Isotipo cuadrado: menú colapsado, pestaña del navegador y fondos claros. null = inicial.
+  icono         String?  @db.Text
+  updatedAt     DateTime @updatedAt
+}
+
+model User {
+  id            String    @id @default(cuid())
+  email         String    @unique
+  nombre        String
+  passwordHash  String?
+  emailVerified DateTime?
+  /// Las sesiones (JWT) emitidas antes de este momento dejan de valer. Se marca al cambiar la
+  /// contraseña, para que restablecerla expulse a quien tuviera una sesión robada.
+  sesionesValidasDesde DateTime?
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  memberships             Membership[]
+  passwordResetTokens     PasswordResetToken[]
+  emailVerificationTokens EmailVerificationToken[]
+}
+
+/// Token de un solo uso para el flujo de "olvidé mi contraseña". Se guarda el hash (sha256), nunca
+/// el token en claro — el valor en claro solo existe en el link que se envía por correo.
+model PasswordResetToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Token de un solo uso para verificar el email al registrarse (anti-bots: una cuenta sin
+/// verificar no puede iniciar sesión). Mismo patrón que PasswordResetToken — se guarda el
+/// hash, nunca el token en claro.
+model EmailVerificationToken {
+  id        String    @id @default(cuid())
+  userId    String
+  tokenHash String    @unique
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+/// Relación usuario↔organización con rol (RBAC). Un usuario puede pertenecer a varias orgs.
+model Membership {
+  id             String   @id @default(cuid())
+  userId         String
+  organizationId String
+  rol            Rol      @default(AGENTE)
+  departamentoId String?
+  sucursalId     String?
+  createdAt      DateTime @default(now())
+
+  user                        User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization                Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  departamento                Departamento?      @relation(fields: [departamentoId], references: [id], onDelete: SetNull)
+  sucursal                    Sucursal?          @relation(fields: [sucursalId], references: [id], onDelete: SetNull)
+  conversacionesAsignadas     Conversacion[]
+  actividadesRealizadas       Actividad[]
+  analisisRiesgo              AnalisisRiesgo[]
+
+  @@unique([userId, organizationId])
+  @@index([organizationId])
+  @@index([departamentoId])
+  @@index([sucursalId])
+}
+
+enum Rol {
+  OWNER
+  ADMIN
+  SUPERVISOR // jefe de agencia: recibe los prospectos aprobados de su agencia
+  AGENTE
+  RIESGOS // analista de riesgos: evalúa y aprueba/rechaza prospectos
+  GERENCIA
+}
+
+/// Área funcional dentro de un workspace (ej. "Cobranza", "Ventas", "Contabilidad").
+/// Agrupa miembros del equipo; no es obligatorio asignar uno.
+model Departamento {
+  id             String   @id @default(cuid())
+  organizationId String
+  nombre         String
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  miembros     Membership[]
+
+  @@unique([organizationId, nombre])
+  @@index([organizationId])
+}
+
+/// Agencia: ubicación física de la empresa (ej. "Matriz Tulcán", "Ibarra Amazonas").
+/// Independiente del departamento: un miembro puede tener departamento y agencia a la vez.
+model Sucursal {
+  id             String   @id @default(cuid())
+  organizationId String
+  nombre         String
+  /// Ciudad que atiende. Los prospectos de esa ciudad se le envían automáticamente (ver
+  /// apps/api/src/common/enrutamiento.ts). Varias agencias pueden compartir ciudad.
+  ciudad         String?
+  createdAt      DateTime @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  miembros     Membership[]
+  leads        Lead[]
+
+  @@unique([organizationId, nombre])
+  @@index([organizationId])
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  CRM — CLIENTES / LEADS / OPORTUNIDADES / ACTIVIDADES         ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+/// Cliente del CRM.
+model Cliente {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  tipoIdentificacion TipoIdentificacion
+  identificacion     String // cédula / RUC / pasaporte
+  razonSocial        String
+  nombreComercial    String?
+  email              String?
+  telefono           String?
+  direccion          String?
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  oportunidades  Oportunidad[]
+  actividades    Actividad[]
+  conversaciones Conversacion[]
+
+  @@unique([organizationId, identificacion])
+  @@index([organizationId])
+}
+
+enum TipoIdentificacion {
+  RUC // 04
+  CEDULA // 05
+  PASAPORTE // 06
+  CONSUMIDOR_FINAL // 07
+  IDENTIFICACION_EXTERIOR // 08
+}
+
+model Lead {
+  id             String     @id @default(cuid())
+  organizationId String
+  nombre         String
+  email          String?
+  telefono       String?
+  empresa        String?
+  fuente         String?
+  estado         LeadEstado @default(NUEVO)
+  notas          String?
+  ciudad         String?
+  /// Agencia que atiende al prospecto. Se asigna sola a partir de `ciudad`; un administrador
+  /// puede cambiarla a mano. null = ninguna agencia cubre esa ciudad (o no se indicó ciudad).
+  sucursalId     String?
+  formularioId   String?
+  /// Snapshot de las respuestas a preguntas libres del formulario (no mapeadas a una columna
+  /// de Lead): { [campoId]: { etiqueta, valor } }. Se guarda la etiqueta tal cual estaba al
+  /// responder, no se hace join en vivo contra FormularioLeadCampo — mismo criterio que ya
+  /// usa CampanaDestinatario (snapshot, no referencia viva).
+  respuestasFormulario Json?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  formulario     FormularioLead? @relation(fields: [formularioId], references: [id], onDelete: SetNull)
+  sucursal       Sucursal?       @relation(fields: [sucursalId], references: [id], onDelete: SetNull)
+  oportunidades  Oportunidad[]
+  actividades    Actividad[]
+  conversaciones Conversacion[]
+  analisisRiesgo AnalisisRiesgo?
+
+  @@index([organizationId])
+  @@index([formularioId])
+  @@index([sucursalId])
+}
+
+enum LeadEstado {
+  NUEVO
+  CONTACTADO
+  CALIFICADO
+  DESCARTADO
+  CONVERTIDO
+}
+
+/// Formulario público de captura de leads — distribuible por QR o link (redes, activaciones
+/// BTL/ferias). Los leads capturados por un mismo formulario quedan agrupados vía
+/// Lead.formularioId, lo que permite usar ese grupo directo como audiencia de una campaña
+/// (Campana.publico = LEADS_FORMULARIO).
+model FormularioLead {
+  id             String   @id @default(cuid())
+  organizationId String
+  nombre         String
+  /// Parte pública de la URL (/f/:slug) — generado server-side, único en toda la plataforma.
+  slug           String   @unique
+  descripcion    String?
+  mensajeExito   String?
+  activo         Boolean  @default(true)
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  organization Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  campos       FormularioLeadCampo[]
+  leads        Lead[]
+  campanas     Campana[]
+
+  @@index([organizationId])
+}
+
+/// Pregunta configurable de un FormularioLead. Nombre y teléfono NO están acá: son implícitos,
+/// siempre presentes/obligatorios en el formulario público (hardcodeados en el frontend) por
+/// ser la base mínima de un Lead válido y la clave para poder mandar WhatsApp — `campos` solo
+/// contiene preguntas *adicionales* opcionales.
+model FormularioLeadCampo {
+  id           String              @id @default(cuid())
+  formularioId String
+  orden        Int
+  tipo         TipoCampoFormulario
+  etiqueta     String
+  obligatorio  Boolean             @default(false)
+  /// Solo aplica a OPCION_UNICA/OPCION_MULTIPLE.
+  opciones     String[]            @default([])
+  /// Si está seteado, la respuesta va a esa columna de Lead en vez de a respuestas libres —
+  /// así "Email"/"Empresa"/"Notas" se ofrecen como preguntas preconfiguradas en el builder
+  /// sin duplicar el concepto de campo.
+  mapeaA       CampoLeadFijo?
+
+  formulario FormularioLead @relation(fields: [formularioId], references: [id], onDelete: Cascade)
+
+  @@index([formularioId])
+}
+
+enum TipoCampoFormulario {
+  TEXTO_CORTO
+  TEXTO_LARGO
+  TELEFONO
+  EMAIL
+  OPCION_UNICA
+  OPCION_MULTIPLE
+}
+
+enum CampoLeadFijo {
+  EMAIL
+  EMPRESA
+  NOTAS
+  CIUDAD
+}
+
+model Oportunidad {
+  id             String    @id @default(cuid())
+  organizationId String
+  titulo         String
+  clienteId      String?
+  leadId         String?
+  etapa          String    @default("PROSPECTO") // PROSPECTO/CONTACTO/PROPUESTA/NEGOCIACION/GANADA/PERDIDA (base) o el id de una etapa personalizada (Organization.etapasPipelineExtra)
+  monto          Decimal   @default(0) @db.Decimal(14, 2)
+  probabilidad   Int       @default(0) // 0-100
+  cierreEstimado DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  cliente      Cliente?     @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  lead         Lead?        @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  actividades  Actividad[]
+
+  @@index([organizationId, etapa])
+}
+
+model Actividad {
+  id             String        @id @default(cuid())
+  organizationId String
+  tipo           TipoActividad
+  asunto         String
+  detalle        String?
+  inicio         DateTime?
+  vencimiento    DateTime?
+  completada     Boolean       @default(false)
+  clienteId      String?
+  oportunidadId  String?
+  leadId         String?
+  conversacionId String? // creada desde el hilo de Mensajes — permite listarla ahí aunque el chat no esté vinculado a un cliente/lead
+  realizadoPorId String?
+  createdAt      DateTime      @default(now())
+
+  organization Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  cliente      Cliente?      @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  oportunidad  Oportunidad?  @relation(fields: [oportunidadId], references: [id], onDelete: SetNull)
+  lead         Lead?         @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  conversacion Conversacion? @relation(fields: [conversacionId], references: [id], onDelete: SetNull)
+  realizadoPor Membership?   @relation(fields: [realizadoPorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId])
+  @@index([leadId])
+  @@index([realizadoPorId])
+  @@index([conversacionId])
+}
+
+enum TipoActividad {
+  LLAMADA
+  EMAIL
+  REUNION
+  TAREA
+  NOTA
+  VISITA
+}
+
+/// Campaña de marketing (envíos masivos). Sin integración de envío real todavía: las métricas
+/// se registran a mano hasta que se conecte un proveedor de email/SMS.
+model Campana {
+  id             String        @id @default(cuid())
+  organizationId String
+  nombre         String
+  canal          CanalCampana  @default(EMAIL)
+  estado         EstadoCampana @default(BORRADOR)
+  /// Plantilla del mensaje — solo campañas WhatsApp QR (envío real); admite {{nombre}}. No se
+  /// usa cuando canalWhatsapp = WHATSAPP_API (ver plantillaMeta).
+  mensaje            String?         @db.Text
+  publico            PublicoCampana?
+  /// Solo relevante si publico = LEADS_FORMULARIO.
+  formularioLeadId   String?
+  /// WHATSAPP_QR (default si null) o WHATSAPP_API — solo aplica si canal = WHATSAPP.
+  canalWhatsapp      CanalMensajeria?
+  /// Nombre exacto de la plantilla ya aprobada en Meta Business Manager — solo si
+  /// canalWhatsapp = WHATSAPP_API (Meta exige plantilla pre-aprobada para contactos nuevos).
+  plantillaMeta       String?
+  plantillaMetaIdioma String?
+  totalDestinatarios Int             @default(0)
+  programadaPara     DateTime?
+  enviadaEn          DateTime?
+  enviados           Int             @default(0)
+  aperturas          Int             @default(0)
+  respuestas         Int             @default(0)
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  formularioLead FormularioLead?       @relation(fields: [formularioLeadId], references: [id], onDelete: SetNull)
+  destinatarios  CampanaDestinatario[]
+
+  @@index([organizationId])
+}
+
+enum CanalCampana {
+  EMAIL
+  SMS
+  WHATSAPP
+}
+
+enum EstadoCampana {
+  BORRADOR
+  PROGRAMADA
+  ENVIANDO
+  ENVIADA
+}
+
+enum PublicoCampana {
+  CLIENTES
+  LEADS
+  LEADS_FORMULARIO
+}
+
+/// Snapshot de a quién se le mandó una campaña de WhatsApp y el resultado — se arma al
+/// momento de enviar (no en vivo desde Cliente/Lead), así una campaña ya enviada no cambia
+/// de destinatarios si el público se edita después.
+model CampanaDestinatario {
+  id        String                  @id @default(cuid())
+  campanaId String
+  nombre    String
+  telefono  String
+  /// Variables extra para interpolar en el mensaje además de {{nombre}} — ej. { saldo, diasMora,
+  /// monto, cuota, numero } para créditos en mora. Null para públicos genéricos (clientes/leads).
+  variables Json?
+  estado    EstadoEnvioDestinatario @default(PENDIENTE)
+  error     String?
+  enviadoEn DateTime?
+  createdAt DateTime                @default(now())
+
+  campana Campana @relation(fields: [campanaId], references: [id], onDelete: Cascade)
+
+  @@index([campanaId])
+}
+
+enum EstadoEnvioDestinatario {
+  PENDIENTE
+  ENVIADO
+  ERROR
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  RIESGOS — ANÁLISIS Y APROBACIÓN DE PROSPECTOS               ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+/// Ficha de análisis de riesgo de un prospecto (uno por Lead). El equipo de riesgos la evalúa
+/// y decide; al quedar APROBADA, el prospecto aparece en la bandeja del jefe de su agencia.
+model AnalisisRiesgo {
+  id              String       @id @default(cuid())
+  organizationId  String
+  leadId          String       @unique
+  estado          EstadoRiesgo @default(PENDIENTE)
+  nivel           NivelRiesgo?
+  /// Puntaje de 0 a 100 que resume el análisis (mayor = menos riesgo).
+  puntaje         Int?
+  montoSolicitado Decimal?     @db.Decimal(14, 2)
+  montoAprobado   Decimal?     @db.Decimal(14, 2)
+  ingresos        Decimal?     @db.Decimal(14, 2)
+  egresos         Decimal?     @db.Decimal(14, 2)
+  /// Checklist de criterios revisados: { [clave]: boolean }. Las claves las define el front
+  /// (ver CRITERIOS_RIESGO en apps/web/lib/riesgos.ts).
+  criterios       Json?
+  observaciones   String?      @db.Text
+  analizadoPorId  String?
+  analizadoEn     DateTime?
+  /// Cuándo se envió este prospecto aprobado al jefe de agencia (en un lote por correo).
+  /// null + estado APROBADO = aprobado pero todavía no enviado (cuenta para el lote).
+  enviadoEn       DateTime?
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  lead         Lead         @relation(fields: [leadId], references: [id], onDelete: Cascade)
+  analizadoPor Membership?  @relation(fields: [analizadoPorId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, estado])
+  @@index([analizadoPorId])
+}
+
+enum EstadoRiesgo {
+  PENDIENTE // en cola, nadie lo ha tomado
+  EN_ANALISIS // un analista lo está revisando
+  APROBADO // pasa al jefe de agencia
+  RECHAZADO // no califica
+  OBSERVADO // falta información / condiciones
+}
+
+enum NivelRiesgo {
+  BAJO
+  MEDIO
+  ALTO
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  INTEGRACIONES DE MENSAJERÍA (para el módulo Mensajes)       ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+/// Conexión de un tenant con un canal de mensajería externo. Las credenciales viajan
+/// cifradas (AES-256-GCM, misma clave/mecanismo que Certificado — ver packages/sri/src/crypto.ts).
+/// `etiqueta` es lo único legible sin descifrar (para mostrar en la UI sin exponer el secreto).
+model IntegracionCanal {
+  id             String            @id @default(cuid())
+  organizationId String
+  canal          CanalMensajeria
+  estado         EstadoIntegracion @default(DESCONECTADO)
+  etiqueta       String? // ej. número verificado, nombre de página o @usuario
+  configCifrada  Bytes?
+  configIv       Bytes?
+  configTag      Bytes?
+  conectadoEn    DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, canal])
+  @@index([organizationId])
+}
+
+enum CanalMensajeria {
+  WHATSAPP_QR // Evolution API (self-hosted, pairing por código QR)
+  WHATSAPP_API // WhatsApp Business Platform (Meta Cloud API oficial)
+  MESSENGER
+  INSTAGRAM
+  TIKTOK
+}
+
+enum EstadoIntegracion {
+  DESCONECTADO
+  PENDIENTE // WhatsApp QR: instancia creada, esperando que el usuario escanee el código
+  CONECTADO
+  ERROR
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  MENSAJES — INBOX UNIFICADO (usa las IntegracionCanal)        ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+/// Hilo de conversación con un contacto en un canal. `contactoId` es el identificador remoto
+/// en la plataforma (número de WhatsApp en formato internacional, PSID de Messenger, etc.).
+model Conversacion {
+  id              String             @id @default(cuid())
+  organizationId  String
+  canal           CanalMensajeria
+  contactoId      String
+  contactoNombre  String?
+  fotoUrl         String?
+  clienteId       String?
+  leadId          String?
+  estado          ConversacionEstado @default(ABIERTA)
+  asignadoAId     String?
+  ultimoMensajeEn DateTime?
+  noLeidos        Int                @default(0)
+  /// true = el motor de bots no interviene en esta conversación (handoff, o un humano ya
+  /// respondió a mano desde el inbox). Se puede reactivar a mano desde /mensajes.
+  botPausado      Boolean            @default(false)
+  /// Borrado suave: al "eliminar" una conversación se oculta en vez de purgarse, porque
+  /// el CRM re-sincroniza el historial completo desde Evolution API periódicamente (no hay
+  /// webhook público en desarrollo local) — si se purgara de verdad, la siguiente sincronización
+  /// la resucitaría con todo su historial viejo. Un mensaje genuinamente nuevo (posterior a esta
+  /// fecha) la reactiva automáticamente.
+  eliminadaEn     DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  cliente      Cliente?           @relation(fields: [clienteId], references: [id], onDelete: SetNull)
+  lead         Lead?              @relation(fields: [leadId], references: [id], onDelete: SetNull)
+  asignadoA    Membership?        @relation(fields: [asignadoAId], references: [id], onDelete: SetNull)
+  mensajes     Mensaje[]
+  notas        NotaConversacion[]
+  actividades  Actividad[]
+  botFlowRun   BotFlowRun?
+
+  @@unique([organizationId, canal, contactoId])
+  @@index([organizationId, ultimoMensajeEn])
+  @@index([asignadoAId])
+}
+
+enum ConversacionEstado {
+  ABIERTA
+  PENDIENTE
+  RESUELTA
+}
+
+/// Nota interna del equipo sobre una conversación — nunca se envía al contacto, solo visible
+/// dentro del CRM (contexto para quien retome el chat, recordatorios, etc.).
+model NotaConversacion {
+  id             String   @id @default(cuid())
+  conversacionId String
+  autorNombre    String
+  contenido      String   @db.Text
+  createdAt      DateTime @default(now())
+
+  conversacion Conversacion @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+
+  @@index([conversacionId, createdAt])
+}
+
+model Mensaje {
+  id             String           @id @default(cuid())
+  conversacionId String
+  direccion      DireccionMensaje
+  tipo           TipoMensaje      @default(TEXTO)
+  contenido      String           @db.Text // texto, o caption/etiqueta legible si es media (ej. "Nota de voz")
+  remoteId       String? // id del mensaje en la plataforma origen — evita duplicar al sincronizar
+  remoteJid      String? // jid tal cual lo usa Evolution (puede ser un "lid"), para re-pedir el media original
+  enviadoEn      DateTime
+  createdAt      DateTime         @default(now())
+
+  conversacion Conversacion @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+
+  @@unique([conversacionId, remoteId])
+  @@index([conversacionId, enviadoEn])
+}
+
+enum DireccionMensaje {
+  ENTRANTE
+  SALIENTE
+}
+
+enum TipoMensaje {
+  TEXTO
+  IMAGEN
+  VIDEO
+  AUDIO
+  STICKER
+  DOCUMENTO
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  BOTS (flujos conversacionales, editor visual de nodos)       ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+/// Flujo de bot diseñado con el editor visual de nodos. Solo uno puede estar
+/// `activo` por organización a la vez (la regla la aplica el servicio en una
+/// transacción al activar, no una constraint de DB — así el toggle no
+/// necesita borrar/recrear filas).
+///
+/// v1: solo cubre el editor + CRUD + activar/desactivar. Todavía NO hay
+/// motor de ejecución que responda de verdad a mensajes de WhatsApp — eso
+/// es una fase aparte (necesitaría un modelo de estado de ejecución por
+/// conversación, análogo a esta tabla pero por-run).
+model BotFlow {
+  id             String           @id @default(cuid())
+  organizationId String
+  nombre         String
+  descripcion    String           @default("")
+  activo         Boolean          @default(false)
+  /// Canal para el que se pensó el flujo. null = aplica a cualquier canal
+  /// conectado (no hay asignación por canal individual todavía).
+  canal          CanalMensajeria?
+  /// { nodes: FlowNode[], edges: FlowEdge[] } — ver flowDefinitionSchema en @totalcrm/shared.
+  definicion     Json             @default("{\"nodes\":[],\"edges\":[]}")
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  runs         BotFlowRun[]
+
+  @@index([organizationId, activo])
+}
+
+/// Notificación de "algo pasó en el sistema" — org-wide (la ven todos los miembros), no
+/// dirigida a un usuario en particular. La crean los propios servicios cuando ocurre el
+/// evento real (lead nuevo, lead convertido, mensaje entrante, bot activado) — no hay
+/// polling ni cron, es un insert síncrono en el mismo flujo que ya procesa el evento.
+model Notificacion {
+  id             String           @id @default(cuid())
+  organizationId String
+  tipo           TipoNotificacion
+  titulo         String
+  mensaje        String?
+  /// Ruta del frontend a la que lleva al hacer click, ej. "/leads". null = no navega.
+  url            String?
+  leida          Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, leida])
+  @@index([organizationId, createdAt])
+}
+
+enum TipoNotificacion {
+  LEAD_NUEVO
+  LEAD_CONVERTIDO
+  MENSAJE_NUEVO
+  BOT_ACTIVADO
+  CITA_AGENDADA
+  RIESGO_APROBADO
+}
+
+/// Estado de ejecución de un BotFlow contra UNA conversación — a lo sumo una fila por
+/// conversación (@@unique). El motor de ejecución (apps/api/src/bots/engine/) la usa para
+/// saber en qué nodo va, qué está esperando del contacto y qué variables lleva recolectadas.
+model BotFlowRun {
+  id                 String         @id @default(cuid())
+  organizationId     String
+  conversacionId     String         @unique
+  botFlowId          String
+  nodoActualId       String?
+  esperando          TipoEsperaBot?
+  variables          Json           @default("{}")
+  opcionesPendientes Json?
+  reintentos         Int            @default(0)
+  activa             Boolean        @default(true)
+  createdAt          DateTime       @default(now())
+  updatedAt          DateTime       @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversacion Conversacion @relation(fields: [conversacionId], references: [id], onDelete: Cascade)
+  botFlow      BotFlow      @relation(fields: [botFlowId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId])
+  @@index([botFlowId])
+}
+
+enum TipoEsperaBot {
+  INPUT
+  OPCION
+  AGENDA
+}
+

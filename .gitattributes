@@ -1,0 +1,6 @@
+# Los scripts de shell y los archivos que lee Docker dentro de Linux deben conservar saltos
+# de línea LF aunque el repositorio se clone en Windows.
+*.sh text eol=lf
+Caddyfile text eol=lf
+Dockerfile text eol=lf
+*.sql text eol=lf

@@ -1,0 +1,266 @@
+@import "tailwindcss";
+
+/* Dark mode por clase en <html> (toggle), no solo por preferencia del sistema. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tokens de rol (claro). La paleta de marca va en @theme. */
+:root {
+  --bg: #ffffff;
+  --surface: #f8fafc;
+  --card: #ffffff;
+  --foreground: #0f172a;
+  --muted: #64748b;
+  --border: #e2e8f0;
+  --primary-soft: #e3f6ea;
+  /* Ancho del sidebar de AppShell — lo actualiza en vivo el toggle de colapsar (16rem/5rem).
+     El default acá evita un salto visual para quien lee esta variable antes de que el efecto corra (ej. BotBuilder). */
+  --app-sidebar-width: 16rem;
+  color-scheme: light;
+
+  /* Repetidas del bloque @theme de abajo: Tailwind v4 solo garantiza exponer una variable de
+     @theme como custom property real en tiempo de ejecución si también aparece referenciada
+     dentro de CSS autor (var(--x) en una regla, o una clase de utilidad como bg-status-x). Estas
+     se leen SOLO desde JS/TS vía var(--color-chart-N)/var(--color-status-X) como valor de style
+     inline (nunca como className), así que Tailwind las poda del :root final y el color
+     desaparece (charts/donuts quedan grises). Declararlas también aquí, en CSS plano, las deja
+     siempre presentes sin depender de esa detección. */
+  --color-chart-1: #2a78d6;
+  --color-chart-2: #eb6834;
+  --color-chart-3: #1baf7a;
+  --color-chart-4: #eda100;
+  --color-chart-5: #e87ba4;
+  --color-chart-6: #008300;
+  --color-chart-7: #4a3aa7;
+  --color-chart-8: #e34948;
+  --color-status-good: #0ca30c;
+  --color-status-warning: #fab219;
+  --color-status-serious: #ec835a;
+  --color-status-critical: #d03b3b;
+}
+
+/* Tokens de rol (oscuro) — base navy de la marca. */
+.dark {
+  --bg: #0a0f1a;
+  --surface: #0f1726;
+  --card: #131e30;
+  --foreground: #e8eef6;
+  --muted: #93a3b8;
+  --border: #243349;
+  --primary-soft: #0f3320;
+  /* Azules un poco más vivos para contrastar sobre fondo oscuro */
+  --color-primary: #2fc56f;
+  --color-primary-dark: #06ba56;
+  --color-primary-light: #6ce9a6;
+  color-scheme: dark;
+
+  /* Mismos 8 tonos, un paso más claro para contrastar sobre superficie oscura — misma
+     validación que arriba, contra --surface #131e30 (contraste ≥3:1 en las 8). */
+  --color-chart-1: #3987e5;
+  --color-chart-2: #d95926;
+  --color-chart-3: #199e70;
+  --color-chart-4: #c98500;
+  --color-chart-5: #d55181;
+  --color-chart-6: #008300;
+  --color-chart-7: #9085e9;
+  --color-chart-8: #e66767;
+
+  /* Estado: mismos 4 pasos que en claro — ya despejan 3:1 sobre superficie oscura. */
+  --color-status-good: #0ca30c;
+  --color-status-warning: #fab219;
+  --color-status-serious: #ec835a;
+  --color-status-critical: #d03b3b;
+}
+
+@theme {
+  --color-background: var(--bg);
+  --color-surface: var(--surface);
+  --color-card: var(--card);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+
+  /* Colores institucionales de la Cooperativa Pablo Muñoz Vega (verde PANTONE 355 C y amarillo
+     PANTONE 803 C). Se pueden ajustar en Configuración → Marca:
+     app/layout.tsx sobreescribe estas variables en el <html> (ver lib/marca-color.ts). */
+  --color-primary: #00953a;
+  --color-primary-dark: #007a30;
+  --color-primary-light: #06ba56;
+  --color-primary-soft: var(--primary-soft);
+  --color-navy: #006226;
+  --color-navy-dark: #00421a;
+  --color-accent: #ffe800;
+  --color-accent-glow: #fff299;
+
+  /* Alias de marca usados en las páginas internas (bg-brand, text-brand, ring-brand-100…) */
+  --color-brand: #00953a;
+  --color-brand-dark: #007a30;
+  --color-brand-light: #06ba56;
+  --color-brand-100: #d8fce8;
+
+  /* Paleta categórica para gráficos — 8 tonos, orden fijo (nunca ciclar/reordenar: el orden
+     es lo que garantiza separación bajo daltonismo entre vecinos). Validada con
+     scripts/validate_palette.js del skill de dataviz contra la superficie real de esta app
+     (--surface #f8fafc / #131e30): CVD adjacente ΔE 9.1 claro / 8.4 oscuro (piso ≥8),
+     visión normal ΔE 19.6 claro / 19.3 oscuro (piso ≥15). Valores oscuros (override en .dark
+     más abajo) son el mismo set un paso más claro para seguir despejando 3:1 sobre esa superficie. */
+  --color-chart-1: #2a78d6; /* azul */
+  --color-chart-2: #eb6834; /* naranja */
+  --color-chart-3: #1baf7a; /* aqua */
+  --color-chart-4: #eda100; /* amarillo */
+  --color-chart-5: #e87ba4; /* magenta */
+  --color-chart-6: #008300; /* verde */
+  --color-chart-7: #4a3aa7; /* violeta */
+  --color-chart-8: #e34948; /* rojo */
+
+  /* Colores de estado — solo cuando el color SIGNIFICA bueno/malo (ej. crédito pagado vs.
+     en mora), nunca para identidad de serie. Van siempre con ícono/texto, no solo color. */
+  --color-status-good: #0ca30c;
+  --color-status-warning: #fab219;
+  --color-status-serious: #ec835a;
+  --color-status-critical: #d03b3b;
+
+  --font-sans: var(--font-inter), ui-sans-serif, system-ui, -apple-system, "Segoe UI",
+    Roboto, "Helvetica Neue", Arial, sans-serif;
+  --font-display: var(--font-montserrat), var(--font-inter), ui-sans-serif, system-ui, sans-serif;
+
+  --shadow-glow: 0 10px 40px -10px rgba(0, 149, 58, 0.35);
+  --shadow-card: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 20px -8px rgba(15, 23, 42, 0.08);
+
+  --animate-float: float 6s ease-in-out infinite;
+  --animate-drift-a: driftA 14s ease-in-out infinite;
+  --animate-drift-b: driftB 18s ease-in-out infinite;
+  --animate-drift-c: driftC 20s ease-in-out infinite;
+  --animate-grid-pan: gridPan 6s linear infinite;
+  --animate-shine: shine 3s ease-in-out infinite;
+  --animate-fade-in: fadeIn 0.3s ease-out both;
+  --animate-fade-up: fadeUp 0.6s ease-out both;
+}
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: var(--bg);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+}
+
+h1, h2, .font-display { font-family: var(--font-display); }
+h1, h2 { letter-spacing: -0.02em; }
+
+/* ─── Clases de componente ────────────────────────────────────── */
+/* En @layer components para que las utilidades de Tailwind (px-6, text-base…)
+   puedan sobreescribir cuando se combinan en el markup. */
+@layer components {
+  .container-x { margin-inline: auto; width: 100%; max-width: 80rem; padding-inline: 1.5rem; }
+  @media (min-width: 1024px) { .container-x { padding-inline: 2rem; } }
+
+  .btn,
+  .btn-primary {
+    display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem;
+    border-radius: 0.75rem; padding: 0.625rem 1.25rem; font-size: 0.875rem;
+    font-weight: 600; line-height: 1; white-space: nowrap;
+    transition: transform 0.2s ease, background-color 0.2s ease, box-shadow 0.2s ease;
+  }
+  .btn-primary {
+    background: var(--color-primary); color: #fff; box-shadow: var(--shadow-glow);
+  }
+  .btn-primary:hover { background: var(--color-primary-dark); transform: translateY(-1px); }
+  .btn-primary:active { transform: translateY(0); }
+
+  .btn-outline {
+    background: color-mix(in srgb, var(--card) 70%, transparent);
+    color: var(--foreground); border: 1px solid var(--border);
+    backdrop-filter: blur(6px);
+  }
+  .btn-outline:hover { border-color: var(--color-primary); color: var(--color-primary); transform: translateY(-1px); }
+  .btn-outline:active { transform: translateY(0); }
+
+  .badge-pill {
+    display: inline-flex; align-items: center; gap: 0.5rem;
+    border-radius: 9999px;
+    border: 1px solid color-mix(in srgb, var(--color-primary) 22%, transparent);
+    background: color-mix(in srgb, var(--color-primary) 7%, var(--card));
+    padding: 0.4rem 0.9rem; font-size: 0.75rem; font-weight: 600;
+    color: var(--color-primary); letter-spacing: 0;
+  }
+
+  .card {
+    border-radius: 1rem; border: 1px solid var(--border); background: var(--card);
+    box-shadow: var(--shadow-card); transition: all 0.2s ease;
+  }
+  .gradient-text {
+    background: linear-gradient(110deg, var(--color-primary), var(--color-accent), var(--color-primary));
+    background-size: 200% auto;
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+    animation: gradientShift 6s ease infinite;
+  }
+}
+
+/* Vidrio esmerilado */
+.glass {
+  background: rgba(255, 255, 255, 0.72);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+}
+
+/* ─── Animaciones ─────────────────────────────────────────────── */
+
+@keyframes float { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-8px); } }
+@keyframes driftA {
+  0%, 100% { transform: translate3d(0,0,0) scale(1); }
+  33% { transform: translate3d(140px,-100px,0) scale(1.15); }
+  66% { transform: translate3d(-100px,80px,0) scale(0.9); }
+}
+@keyframes driftB {
+  0%, 100% { transform: translate3d(0,0,0) scale(1); }
+  50% { transform: translate3d(-180px,120px,0) scale(1.2); }
+}
+@keyframes driftC {
+  0%, 100% { transform: translate3d(0,0,0); }
+  25% { transform: translate3d(80px,100px,0); }
+  75% { transform: translate3d(-120px,-80px,0); }
+}
+@keyframes gridPan { 0% { background-position: 0 0; } 100% { background-position: 30px 30px; } }
+@keyframes shine {
+  0% { transform: translateX(-120%) skewX(-15deg); }
+  60%, 100% { transform: translateX(250%) skewX(-15deg); }
+}
+@keyframes fadeIn { from { opacity: 0; transform: translateY(-4px); } to { opacity: 1; transform: none; } }
+@keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: none; } }
+@keyframes gradientShift { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } }
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: 0.01ms !important; animation-iteration-count: 1 !important; }
+}
+
+/* Menú lateral: barra de desplazamiento fina y solo visible al pasar el cursor. */
+.sidebar-scroll { scrollbar-width: thin; scrollbar-color: transparent transparent; }
+.sidebar-scroll:hover { scrollbar-color: rgb(255 255 255 / 0.2) transparent; }
+
+/* ── Login: arcos animados del panel institucional ──
+   Movimiento lento y de poca amplitud: acompaña sin distraer del formulario. */
+@keyframes login-flotar {
+  from { transform: translate3d(0, 0, 0) scale(1); }
+  to { transform: translate3d(-22px, 18px, 0) scale(1.05); }
+}
+@keyframes login-girar { to { transform: rotate(360deg); } }
+@keyframes login-respirar {
+  from { opacity: 0.55; transform: scale(1); }
+  to { opacity: 1; transform: scale(1.12); }
+}
+.login-flotar { animation: login-flotar 11s ease-in-out infinite alternate; }
+.login-flotar-lento { animation: login-flotar 17s ease-in-out infinite alternate-reverse; }
+.login-respirar { animation: login-respirar 9s ease-in-out infinite alternate; }
+/* Destello que recorre el arco: un degradado cónico recortado al grosor del trazo con una
+   máscara radial. Toma el color de `currentColor` (text-accent, text-white…). */
+.login-destello {
+  background: conic-gradient(from 0deg, transparent 0deg, transparent 230deg, currentColor 330deg, transparent 360deg);
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 3px), #000 calc(100% - 2px));
+  animation: login-girar 14s linear infinite;
+}
+.login-destello-inverso { animation-duration: 22s; animation-direction: reverse; }
+@media (prefers-reduced-motion: reduce) {
+  .login-flotar, .login-flotar-lento, .login-respirar, .login-destello { animation: none; }
+}

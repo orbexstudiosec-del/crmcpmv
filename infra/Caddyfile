@@ -1,0 +1,15 @@
+# SITE_ADDRESS lo define el instalador: un dominio (Caddy obtiene y renueva el certificado
+# TLS solo, con Let's Encrypt) o ":80" para servir por IP sin HTTPS.
+
+{$SITE_ADDRESS} {
+	# API bajo /api, el resto al frontend Next.js
+	handle /api/* {
+		reverse_proxy api:4000
+	}
+
+	handle {
+		reverse_proxy web:3000
+	}
+
+	encode gzip zstd
+}
