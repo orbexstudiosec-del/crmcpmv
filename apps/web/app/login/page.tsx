@@ -4,10 +4,9 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import type { LucideIcon } from "lucide-react";
-import { Mail, Lock, Eye, EyeOff, LogIn, MapPin, MessageSquare, TrendingUp } from "lucide-react";
-import { api, guardarSesion, type LoginResp } from "@/lib/api";
+import { Mail, Lock, Eye, EyeOff, LogIn, MapPin, MessageSquare, TrendingUp, ShieldCheck, ArrowLeft } from "lucide-react";
+import { api, guardarSesion, type LoginDesafio, type LoginResp } from "@/lib/api";
 import { MarcaLogo, useMarca } from "@/lib/marca";
-import { MENSAJE_EMAIL_NO_VERIFICADO } from "@totalcrm/shared";
 
 export default function LoginPage() {
   const router = useRouter();
@@ -16,43 +15,72 @@ export default function LoginPage() {
   const [error, setError] = useState<string | null>(null);
   const [cargando, setCargando] = useState(false);
   const [verPass, setVerPass] = useState(false);
-  const [reenviando, setReenviando] = useState(false);
+  /** Paso 2: la contraseña fue correcta y se mandó un código al correo institucional. */
+  const [desafio, setDesafio] = useState<LoginDesafio | null>(null);
+  const [codigo, setCodigo] = useState("");
   const [reenviado, setReenviado] = useState(false);
 
   const set =
     (k: keyof typeof datos) => (e: React.ChangeEvent<HTMLInputElement>) =>
       setDatos((d) => ({ ...d, [k]: e.target.value }));
 
-  async function reenviarVerificacion() {
-    setReenviando(true);
+  /** Paso 1. También sirve para pedir un código nuevo: repite la contraseña ya escrita. */
+  async function pedirCodigo() {
+    setError(null);
+    setCargando(true);
     try {
-      await api("/auth/resend-verification", { auth: false, method: "POST", body: JSON.stringify({ email: datos.email }) });
-      setReenviado(true);
+      const r = await api<LoginDesafio>("/auth/login", {
+        auth: false,
+        method: "POST",
+        body: JSON.stringify({ email: datos.email, password: datos.password }),
+      });
+      setDesafio(r);
+      setCodigo("");
+      return true;
     } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo reenviar el correo");
+      setError(err instanceof Error ? err.message : "Error desconocido");
+      return false;
     } finally {
-      setReenviando(false);
+      setCargando(false);
     }
   }
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    setReenviado(false);
+    await pedirCodigo();
+  }
+
+  async function reenviarCodigo() {
+    if (await pedirCodigo()) setReenviado(true);
+  }
+
+  /** Paso 2. */
+  async function onSubmitCodigo(e: React.FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!desafio) return;
     setError(null);
     setCargando(true);
     try {
-      const r = await api<LoginResp>("/auth/login", {
+      const r = await api<LoginResp>("/auth/login/codigo", {
         auth: false,
         method: "POST",
-        body: JSON.stringify({ email: datos.email, password: datos.password }),
+        body: JSON.stringify({ desafio: desafio.desafio, codigo }),
       });
       if (!guardarSesion(r)) throw new Error("Tu usuario no pertenece a la cooperativa. Pide a un administrador que te agregue al equipo.");
       router.replace("/dashboard");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error desconocido");
-      setReenviado(false);
     } finally {
       setCargando(false);
     }
+  }
+
+  function volver() {
+    setDesafio(null);
+    setCodigo("");
+    setError(null);
+    setReenviado(false);
   }
 
   return (
@@ -64,12 +92,45 @@ export default function LoginPage() {
           <MarcaLogo className="h-12 self-start lg:hidden" />
 
           <p className="mt-8 text-[11px] font-semibold uppercase tracking-[0.14em] text-primary lg:mt-0">{marca.nombre}</p>
+          {desafio ? (
+            <>
+              <h1 className="mt-1.5 font-display text-2xl font-extrabold tracking-tight text-foreground">Revisa tu correo</h1>
+              <p className="mt-1.5 text-sm text-muted">
+                Enviamos un código de 6 dígitos a <span className="font-medium text-foreground">{desafio.correo}</span>. Vence en 10 minutos.
+              </p>
+
+              <form onSubmit={onSubmitCodigo} className="mt-6 space-y-4">
+                <Field name="codigo" label="Código de acceso" icon={ShieldCheck} required autoFocus
+                  inputMode="numeric" autoComplete="one-time-code" maxLength={6} pattern="\d{6}"
+                  placeholder="000000" value={codigo} onChange={(e) => setCodigo(e.target.value.replace(/\D/g, "").slice(0, 6))} />
+                {error && (
+                  <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-500/10 dark:text-red-400">{error}</p>
+                )}
+                {reenviado && !error && (
+                  <p className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">Te enviamos un código nuevo.</p>
+                )}
+                <button type="submit" disabled={cargando || codigo.length !== 6} className="btn-primary w-full py-2.5 text-sm disabled:opacity-50">
+                  {cargando ? "Verificando…" : (<><LogIn size={16} /> Ingresar</>)}
+                </button>
+              </form>
+
+              <div className="mt-4 flex items-center justify-between text-xs">
+                <button type="button" onClick={volver} className="inline-flex items-center gap-1 font-medium text-muted hover:text-foreground">
+                  <ArrowLeft size={13} /> Cambiar de usuario
+                </button>
+                <button type="button" onClick={reenviarCodigo} disabled={cargando} className="font-medium text-primary hover:underline disabled:opacity-50">
+                  Enviar otro código
+                </button>
+              </div>
+            </>
+          ) : (
+          <>
           <h1 className="mt-1.5 font-display text-2xl font-extrabold tracking-tight text-foreground">Ingresa a tu cuenta</h1>
           <p className="mt-1.5 text-sm text-muted">Revisa los prospectos de tu agencia y dales seguimiento.</p>
 
           <form onSubmit={onSubmit} className="mt-6 space-y-4">
-            <Field name="email" type="email" label="Correo" icon={Mail} required autoFocus autoComplete="username"
-              placeholder="tu correo de usuario" value={datos.email} onChange={set("email")} />
+            <Field name="email" type="email" label="Correo institucional" icon={Mail} required autoFocus autoComplete="username"
+              placeholder="tu correo de la cooperativa" value={datos.email} onChange={set("email")} />
             <Field name="password" type={verPass ? "text" : "password"} label="Contraseña" icon={Lock} required
               autoComplete="current-password" placeholder="••••••••" value={datos.password} onChange={set("password")}
               labelRight={
@@ -86,28 +147,18 @@ export default function LoginPage() {
               }
             />
             {error && (
-              <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-500/10 dark:text-red-400">
-                {error}
-                {error === MENSAJE_EMAIL_NO_VERIFICADO && (
-                  <button
-                    type="button"
-                    onClick={reenviarVerificacion}
-                    disabled={reenviando || reenviado}
-                    className="ml-1.5 font-medium underline underline-offset-2 disabled:no-underline"
-                  >
-                    {reenviando ? "Enviando…" : reenviado ? "Reenviado ✓" : "Reenviar correo"}
-                  </button>
-                )}
-              </p>
+              <p role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600 dark:bg-red-500/10 dark:text-red-400">{error}</p>
             )}
             <button type="submit" disabled={cargando} className="btn-primary w-full py-2.5 text-sm disabled:opacity-50">
-              {cargando ? "Ingresando…" : (<><LogIn size={16} /> Ingresar</>)}
+              {cargando ? "Enviando código…" : (<><LogIn size={16} /> Continuar</>)}
             </button>
           </form>
 
           <p className="mt-6 text-center text-xs text-muted">
             ¿No tienes usuario? Solicítalo al administrador del sistema.
           </p>
+          </>
+          )}
         </div>
 
         <p className="mt-8 text-center text-[11px] text-muted lg:hidden">

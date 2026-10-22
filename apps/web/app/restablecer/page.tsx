@@ -8,7 +8,10 @@ import { api } from "@/lib/api";
 
 function RestablecerForm() {
   const router = useRouter();
-  const token = useSearchParams().get("token");
+  const params = useSearchParams();
+  const token = params.get("token");
+  // El mismo enlace activa una cuenta nueva (invitación del administrador) o restablece la contraseña.
+  const activacion = params.get("activar") === "1";
   const [password, setPassword] = useState("");
   const [confirmar, setConfirmar] = useState("");
   const [verPass, setVerPass] = useState(false);
@@ -56,16 +59,16 @@ function RestablecerForm() {
         <span className="mx-auto flex h-12 w-12 items-center justify-center rounded-full bg-primary-soft text-primary">
           <CheckCircle2 size={22} />
         </span>
-        <h1 className="mt-4 font-display text-xl font-bold text-foreground">Contraseña actualizada</h1>
-        <p className="mt-2 text-sm text-muted">Ya podés iniciar sesión con tu nueva contraseña. Te llevamos al login…</p>
+        <h1 className="mt-4 font-display text-xl font-bold text-foreground">{activacion ? "Cuenta activada" : "Contraseña actualizada"}</h1>
+        <p className="mt-2 text-sm text-muted">Ya puedes iniciar sesión: te pediremos tu contraseña y un código que llegará a tu correo institucional. Te llevamos al login…</p>
       </div>
     );
   }
 
   return (
     <>
-      <h1 className="font-display text-xl font-bold text-foreground">Elige tu nueva contraseña</h1>
-      <p className="mt-1.5 text-sm text-muted">Debe tener al menos 8 caracteres.</p>
+      <h1 className="font-display text-xl font-bold text-foreground">{activacion ? "Activa tu cuenta" : "Elige tu nueva contraseña"}</h1>
+      <p className="mt-1.5 text-sm text-muted">{activacion ? "Define la contraseña con la que vas a ingresar. " : ""}Debe tener al menos 8 caracteres.</p>
 
       <form onSubmit={onSubmit} className="mt-6 space-y-4">
         <label className="block">
@@ -107,7 +110,7 @@ function RestablecerForm() {
         )}
 
         <button type="submit" disabled={cargando} className="btn-primary w-full py-3 text-base disabled:opacity-50">
-          {cargando ? "Guardando…" : "Guardar nueva contraseña"}
+          {cargando ? "Guardando…" : activacion ? "Activar mi cuenta" : "Guardar nueva contraseña"}
         </button>
       </form>
     </>

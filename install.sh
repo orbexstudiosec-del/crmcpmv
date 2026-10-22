@@ -9,7 +9,9 @@
 #
 # Para automatizar, cualquier respuesta se puede pasar como variable de entorno:
 #   APP_NAME="Ventas Pro" COMPANY_NAME="Acme" DOMAIN="crm.acme.com" \
-#   ADMIN_NAME="Ana" ADMIN_EMAIL="ana@acme.com" ADMIN_PASSWORD="..." ./install.sh
+#   ADMIN_NAME="Ana" ADMIN_EMAIL="ana@acme.com" ADMIN_PASSWORD="..." \
+#   CORREO_DOMINIOS_PERMITIDOS="acme.com" SMTP_HOST="smtp.acme.com" SMTP_USER="crm@acme.com" \
+#   SMTP_PASS="..." ./install.sh
 
 set -euo pipefail
 cd "$(dirname "$0")"
@@ -89,10 +91,40 @@ else
   WEB_URL="http://${IP:-localhost}"
 fi
 
+# ── Correo institucional ────────────────────────────────────────
+# El acceso al CRM depende del correo: cada usuario activa su cuenta con un enlace y recibe un
+# código en cada inicio de sesión. Sin un servidor de correo nadie podría entrar.
+echo
+echo "Correo institucional: el CRM envía a ese correo la activación de cada usuario y el código de acceso."
+preguntar CORREO_DOMINIOS_PERMITIDOS "Dominio del correo institucional (ej. cpmv.fin.ec)"
+CORREO_DOMINIOS_PERMITIDOS="$(printf '%s' "$CORREO_DOMINIOS_PERMITIDOS" | tr 'A-Z' 'a-z' | tr -d ' @')"
+[[ "$CORREO_DOMINIOS_PERMITIDOS" =~ ^[a-z0-9.-]+(,[a-z0-9.-]+)*$ ]] || fatal "Dominio inválido: $CORREO_DOMINIOS_PERMITIDOS"
+preguntar SMTP_HOST "Servidor SMTP de la institución (ej. smtp.office365.com)"
+preguntar SMTP_PORT "Puerto SMTP" "587"
+preguntar SMTP_SECURE "¿TLS directo? (true para el puerto 465, false para 587 con STARTTLS)" "false"
+preguntar SMTP_USER "Usuario SMTP (la cuenta que envía, ej. crm@cpmv.fin.ec)"
+if [[ -z "${SMTP_PASS:-}" ]]; then
+  while true; do
+    read -r -s -p "Contraseña de la cuenta SMTP: " SMTP_PASS; echo
+    if [[ -z "$SMTP_PASS" ]]; then error "No puede quedar vacía."
+    elif ! validar "$SMTP_PASS"; then error "No uses comillas simples."
+    else break; fi
+  done
+fi
+validar "$SMTP_PASS" || fatal "SMTP_PASS no puede contener comillas simples."
+preguntar SMTP_FROM "Remitente de los correos" "$APP_NAME <$SMTP_USER>"
+
+correo_institucional() { # correo_institucional CORREO → 0 si su dominio está permitido
+  local dominio="${1##*@}"
+  [[ ",$CORREO_DOMINIOS_PERMITIDOS," == *",${dominio,,},"* ]]
+}
+
 echo
 preguntar ADMIN_NAME  "Nombre del administrador" "Administrador"
-preguntar ADMIN_EMAIL "Correo del administrador"
+preguntar ADMIN_EMAIL "Correo institucional del administrador"
+ADMIN_EMAIL="$(printf '%s' "$ADMIN_EMAIL" | tr 'A-Z' 'a-z')"
 [[ "$ADMIN_EMAIL" =~ ^[^@[:space:]]+@[^@[:space:]]+\.[^@[:space:]]+$ ]] || fatal "Correo inválido: $ADMIN_EMAIL"
+correo_institucional "$ADMIN_EMAIL" || fatal "El correo del administrador debe ser del dominio institucional ($CORREO_DOMINIOS_PERMITIDOS)."
 
 if [[ -z "${ADMIN_PASSWORD:-}" ]]; then
   while true; do
@@ -131,14 +163,14 @@ AUTH_SECRET='$(secreto)'
 ENCRYPTION_KEY='$(secreto)'
 POSTGRES_PASSWORD='$(secreto)'
 
-# Correo saliente (opcional). Sin SMTP_HOST los enlaces de restablecer contraseña salen en
-# el log del API: docker compose logs api
-SMTP_HOST='${SMTP_HOST:-}'
-SMTP_PORT='${SMTP_PORT:-587}'
-SMTP_SECURE='${SMTP_SECURE:-false}'
-SMTP_USER='${SMTP_USER:-}'
-SMTP_PASS='${SMTP_PASS:-}'
-SMTP_FROM='${SMTP_FROM:-}'
+# Correo institucional (obligatorio): activación de usuarios y código de cada inicio de sesión.
+CORREO_DOMINIOS_PERMITIDOS='$CORREO_DOMINIOS_PERMITIDOS'
+SMTP_HOST='$SMTP_HOST'
+SMTP_PORT='$SMTP_PORT'
+SMTP_SECURE='$SMTP_SECURE'
+SMTP_USER='$SMTP_USER'
+SMTP_PASS='$SMTP_PASS'
+SMTP_FROM='$SMTP_FROM'
 EOF
 
 # ── Arranque ────────────────────────────────────────────────────

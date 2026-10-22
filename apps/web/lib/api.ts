@@ -19,7 +19,15 @@ export interface Sesion {
   orgNombre: string;
 }
 
-/** Respuesta de /auth/login y /auth/verify-email. */
+/** Respuesta de /auth/login (paso 1): la contraseña es correcta y se envió un código al correo. */
+export interface LoginDesafio {
+  requiereCodigo: true;
+  desafio: string;
+  /** Correo enmascarado al que se mandó el código, para mostrarlo en pantalla. */
+  correo: string;
+}
+
+/** Respuesta de /auth/login/codigo (paso 2): la sesión. */
 export interface LoginResp {
   token: string;
   user: { nombre: string; email: string };

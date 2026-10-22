@@ -16,6 +16,8 @@ después se cambia (junto con el logo y el color) desde **Configuración → Mar
   clientes y reportes.
 - **Bots** con editor visual, **campañas** de WhatsApp y **formularios** públicos de
   captación de leads.
+- **Acceso con el correo institucional**: la cuenta se activa con un enlace enviado al correo
+  y cada inicio de sesión pide además un código que llega a ese correo (doble factor).
 - **Equipo** con roles (propietario, administrador, supervisor, agente, riesgos, gerencia).
   Los permisos de cada rol los aplica el API, no solo la interfaz.
 - **Riesgos**: análisis y aprobación de prospectos, con envío por lotes a los jefes de agencia.

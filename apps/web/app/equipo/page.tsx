@@ -60,6 +60,8 @@ export default function EquipoPage() {
   const [deptoNuevoMiembro, setDeptoNuevoMiembro] = useState("");
   const [sucursalNuevoMiembro, setSucursalNuevoMiembro] = useState("");
   const [editandoMiembro, setEditandoMiembro] = useState<Miembro | null>(null);
+  /** Resultado de una invitación: verde si salió, ámbar si el usuario se creó pero el correo no. */
+  const [aviso, setAviso] = useState<{ texto: string; ok: boolean } | null>(null);
 
   const cargar = () => {
     api<Miembro[]>("/equipo").then(setMiembros).catch((e) => setError(e.message)).finally(() => setCargandoMiembros(false));
@@ -72,19 +74,24 @@ export default function EquipoPage() {
     e.preventDefault();
     setError(null);
     setGuardando(true);
+    setAviso(null);
     const f = new FormData(e.currentTarget);
     try {
-      await api("/equipo", {
+      const r = await api<{ user: { email: string; emailVerified: string | null }; avisoInvitacion: string | null }>("/equipo", {
         method: "POST",
         body: JSON.stringify({
           nombre: f.get("nombre"),
           email: f.get("email"),
-          password: f.get("password"),
           rol: f.get("rol"),
           departamentoId: deptoNuevoMiembro || undefined,
           sucursalId: sucursalNuevoMiembro || undefined,
         }),
       });
+      setAviso(
+        r.avisoInvitacion
+          ? { texto: r.avisoInvitacion, ok: false }
+          : { texto: r.user.emailVerified ? `${r.user.email} ya tenía su cuenta activa: se agregó al equipo.` : `Se envió a ${r.user.email} el enlace para activar su cuenta.`, ok: true },
+      );
       setAbierto(false);
       setDeptoNuevoMiembro("");
       setSucursalNuevoMiembro("");
@@ -118,20 +125,29 @@ export default function EquipoPage() {
     }
   }
 
-  async function actualizarUsuario(id: string, cambios: { nombre?: string; email?: string }) {
+  async function actualizarUsuario(miembro: Miembro, cambios: { nombre?: string; email?: string }) {
+    const cambiaCorreo = !!cambios.email && cambios.email.toLowerCase() !== miembro.user.email.toLowerCase();
+    if (cambiaCorreo && !(await confirmDialog(
+      `${miembro.user.nombre} tendrá que volver a activar su cuenta desde ${cambios.email}: se cierran sus sesiones y su contraseña actual deja de servir.`,
+      { titulo: "¿Cambiar el correo?", textoConfirmar: "Cambiar y enviar invitación", peligroso: false },
+    ))) return false;
+    setAviso(null);
     try {
-      await api(`/equipo/${id}`, { method: "PATCH", body: JSON.stringify(cambios) });
+      const r = await api<{ avisoInvitacion: string | null }>(`/equipo/${miembro.id}`, { method: "PATCH", body: JSON.stringify(cambios) });
+      if (r.avisoInvitacion) setAviso({ texto: r.avisoInvitacion, ok: false });
+      else if (cambiaCorreo) setAviso({ texto: `Se envió a ${cambios.email} el enlace para activar la cuenta.`, ok: true });
       cargar();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Error");
     }
+    return true;
   }
 
-  async function reenviarVerificacion(id: string) {
+  async function reenviarInvitacion(id: string) {
     setReenviandoId(id);
     setEnviadoId(null);
     try {
-      await api(`/equipo/${id}/reenviar-verificacion`, { method: "POST" });
+      await api(`/equipo/${id}/reenviar-invitacion`, { method: "POST" });
       setEnviadoId(id);
       setTimeout(() => setEnviadoId((v) => (v === id ? null : v)), 4000);
     } catch (err) {
@@ -153,20 +169,6 @@ export default function EquipoPage() {
       setError(err instanceof Error ? err.message : "Error");
     } finally {
       setRestableciendoId(null);
-    }
-  }
-
-  async function verificarEmail(id: string) {
-    const ok = await confirmDialog(
-      "Esto marca el correo como verificado sin que la persona haya hecho clic en el enlace que le llegó por correo. Úsalo solo si confirmaste por otro medio que el correo es correcto y le pertenece a esta persona, o si el correo nunca le llegó y necesitas desbloquearla manualmente.",
-      { titulo: "¿Verificar manualmente?", textoConfirmar: "Verificar manualmente", peligroso: false },
-    );
-    if (!ok) return;
-    try {
-      await api(`/equipo/${id}/verificar-email`, { method: "PATCH" });
-      cargar();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Error");
     }
   }
 
@@ -265,10 +267,10 @@ export default function EquipoPage() {
     }
   }
 
-  const sinVerificar = miembros.filter((m) => !m.user.emailVerified).length;
+  const sinActivar = miembros.filter((m) => !m.user.emailVerified).length;
   const kpis = [
     { icon: Users, titulo: "Miembros", valor: miembros.length, color: "var(--color-chart-1)" },
-    { icon: ShieldAlert, titulo: "Sin verificar", valor: sinVerificar, color: "var(--color-status-warning)" },
+    { icon: ShieldAlert, titulo: "Sin activar", valor: sinActivar, color: "var(--color-status-warning)" },
     { icon: Building2, titulo: "Departamentos", valor: departamentos.length, color: "var(--color-chart-2)" },
     { icon: MapPin, titulo: "Agencias", valor: sucursales.length, color: "var(--color-chart-3)" },
   ];
@@ -294,6 +296,11 @@ export default function EquipoPage() {
       </div>
 
       {error && <p className="mt-4 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-600">{error}</p>}
+      {aviso && (
+        <p className={`mt-4 rounded-lg px-3 py-2 text-sm ${aviso.ok ? "bg-emerald-50 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400" : "bg-amber-50 text-amber-700 dark:bg-amber-500/10 dark:text-amber-400"}`}>
+          {aviso.texto}
+        </p>
+      )}
 
       <div className="mt-6 grid grid-cols-1 gap-4 sm:grid-cols-2">
         {/* Departamentos */}
@@ -391,8 +398,7 @@ export default function EquipoPage() {
       {abierto && esAdmin && (
         <form onSubmit={crearMiembro} className="card mt-6 grid grid-cols-2 gap-3 p-5">
           <Field name="nombre" label="Nombre" required />
-          <Field name="email" label="Email" type="email" required />
-          <Field name="password" label="Contraseña temporal" type="password" required />
+          <Field name="email" label="Correo institucional" type="email" required />
           <Select name="rol" label="Rol" defaultValue="AGENTE">
             {ROLES.filter((r) => r.v !== "OWNER").map((r) => <option key={r.v} value={r.v}>{r.l}</option>)}
           </Select>
@@ -412,8 +418,11 @@ export default function EquipoPage() {
             placeholder="Sin agencia"
             onCrear={crearSucursalInline}
           />
+          <p className="col-span-2 text-xs text-muted">
+            Le llegará un correo a su cuenta institucional para que active su usuario y defina su contraseña. Cada inicio de sesión le pedirá además un código enviado a ese correo.
+          </p>
           <button disabled={guardando} className="col-span-2 rounded-lg bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-700 disabled:opacity-50">
-            {guardando ? "Guardando…" : "Agregar al equipo"}
+            {guardando ? "Guardando…" : "Agregar y enviar invitación"}
           </button>
         </form>
       )}
@@ -425,7 +434,7 @@ export default function EquipoPage() {
           <table className="w-full text-sm">
             <thead className="bg-surface text-left text-xs uppercase tracking-wide text-muted">
               <tr>
-                {["Nombre", "Email", "Verificación", "Rol", "Departamento", "Agencia", ""].map((c) => (
+                {["Nombre", "Correo", "Cuenta", "Rol", "Departamento", "Agencia", ""].map((c) => (
                   <th key={c} className="whitespace-nowrap px-4 py-3 font-medium">{c}</th>
                 ))}
               </tr>
@@ -443,38 +452,30 @@ export default function EquipoPage() {
                     <td className="whitespace-nowrap px-4 py-3">
                       {m.user.emailVerified ? (
                         <span className="rounded-full bg-emerald-50 px-2.5 py-1 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20">
-                          Verificado
+                          Activa
                         </span>
                       ) : esAdmin ? (
                         <div className="flex flex-col items-start gap-1">
                           <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20">
-                            Sin verificar
+                            Pendiente de activar
                           </span>
                           <div className="flex items-center gap-2 text-[11px]">
                             {enviadoId === m.id ? (
-                              <span className="font-medium text-emerald-600 dark:text-emerald-400">Correo reenviado ✓</span>
+                              <span className="font-medium text-emerald-600 dark:text-emerald-400">Invitación reenviada ✓</span>
                             ) : (
                               <button
-                                onClick={() => reenviarVerificacion(m.id)}
+                                onClick={() => reenviarInvitacion(m.id)}
                                 disabled={reenviandoId === m.id}
                                 className="font-medium text-primary hover:underline disabled:opacity-50"
                               >
-                                {reenviandoId === m.id ? "Enviando…" : "Reenviar correo"}
+                                {reenviandoId === m.id ? "Enviando…" : "Reenviar invitación"}
                               </button>
                             )}
-                            <span className="text-muted">·</span>
-                            <button
-                              onClick={() => verificarEmail(m.id)}
-                              title="Verificar manualmente, sin que la persona haga clic en el correo"
-                              className="font-medium text-muted underline decoration-dotted underline-offset-2 hover:text-foreground"
-                            >
-                              Verificar manualmente
-                            </button>
                           </div>
                         </div>
                       ) : (
                         <span className="rounded-full bg-amber-50 px-2.5 py-1 text-xs font-medium text-amber-700 ring-1 ring-amber-200 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20">
-                          Sin verificar
+                          Pendiente de activar
                         </span>
                       )}
                     </td>
@@ -560,8 +561,7 @@ export default function EquipoPage() {
           miembro={editandoMiembro}
           onClose={() => setEditandoMiembro(null)}
           onGuardar={async (cambios) => {
-            await actualizarUsuario(editandoMiembro.id, cambios);
-            setEditandoMiembro(null);
+            if (await actualizarUsuario(editandoMiembro, cambios)) setEditandoMiembro(null);
           }}
         />
       )}
@@ -601,7 +601,10 @@ function EditarMiembroModal({
         </div>
         <form onSubmit={guardar} className="flex flex-col gap-3 p-5">
           <Field label="Nombre" value={nombre} onChange={(e) => setNombre(e.target.value)} required />
-          <Field label="Email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          <Field label="Correo institucional" type="email" value={email} onChange={(e) => setEmail(e.target.value)} required />
+          {email.trim().toLowerCase() !== miembro.user.email.toLowerCase() && (
+            <p className="-mt-1 text-xs text-amber-600 dark:text-amber-400">Al cambiar el correo, la persona tendrá que volver a activar su cuenta desde el nuevo buzón.</p>
+          )}
           <button disabled={guardando || !nombre.trim() || !email.trim()} className="btn-primary mt-2 py-2 text-sm disabled:opacity-50">
             {guardando ? "Guardando…" : "Guardar cambios"}
           </button>

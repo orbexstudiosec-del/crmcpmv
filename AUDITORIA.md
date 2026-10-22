@@ -34,10 +34,24 @@ Con eso dejan de aplicar las filas de SSRF, de la URL de Evolution y de la API k
 Evolution: el código afectado ya no existe. El servidor del CRM tampoco descarga archivos de
 URLs de los bots: esas URLs las descarga Meta directamente.
 
+## Actualización 22/10/2026 — acceso por correo institucional
+
+- Los usuarios ya no reciben contraseña del administrador: activan su cuenta con un enlace
+  enviado a su correo institucional (72 h) y definen ahí su contraseña.
+- Doble factor: en cada inicio de sesión se envía un código de 6 dígitos al correo (10 min,
+  5 intentos, guardado como HMAC con `AUTH_SECRET`, un solo código vigente por persona).
+- Solo se aceptan correos del dominio institucional (`CORREO_DOMINIOS_PERMITIDOS`).
+- Se eliminó la "verificación manual" de Equipo y el enlace de verificación que abría sesión
+  sin contraseña (migración `20261022100000_acceso_por_correo_institucional`).
+- Cambiar el correo de un usuario obliga a reactivar la cuenta desde el nuevo buzón (cierra
+  sesiones y anula la contraseña). Resuelve el pendiente de que un ADMIN pudiera quedarse con
+  una cuenta ajena cambiando su correo.
+- En producción, sin SMTP los enlaces y códigos ya no se imprimen en el log.
+
 ## Pendiente (decisión de producto o arquitectura)
 
 - El token de sesión vive en `localStorage`; ante un XSS se podría robar. Pasarlo a cookie
   `httpOnly` implica cambiar la autenticación de la web.
-- Un ADMIN puede cambiar el correo de otro usuario sin reverificación y luego pedir un reset
-  a ese correo.
+- El doble factor depende del buzón institucional: su seguridad (contraseña y MFA del correo)
+  la administra Sistemas.
 - Si el API no arranca durante la instalación, `install.sh` deja `ADMIN_PASSWORD` en el `.env`.

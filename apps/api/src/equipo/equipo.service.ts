@@ -1,7 +1,7 @@
-import { BadRequestException, ConflictException, ForbiddenException, Injectable } from '@nestjs/common';
-import * as bcrypt from 'bcryptjs';
+import { BadRequestException, ConflictException, ForbiddenException, Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
 import { AuthService } from '../auth/auth.service';
+import { exigirCorreoInstitucional } from '../common/correo-institucional';
 import type { MiembroInput, ActualizarMiembroInput, DepartamentoInput, SucursalInput, ActualizarSucursalInput, RolMiembro } from '@totalcrm/shared';
 
 const MIEMBRO_SELECT = {
@@ -21,6 +21,8 @@ function exigirGestionDeOwner(actorRol: RolMiembro, condicion: boolean, mensaje:
 
 @Injectable()
 export class EquipoService {
+  private readonly logger = new Logger(EquipoService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly authService: AuthService,
@@ -35,8 +37,11 @@ export class EquipoService {
     });
   }
 
+  /** Alta de un miembro. No lleva contraseña: la persona la define desde el enlace de activación
+   *  que le llega a su correo institucional (el administrador nunca la conoce). */
   async agregarMiembro(organizationId: string, input: MiembroInput, actorRol: RolMiembro) {
     exigirGestionDeOwner(actorRol, input.rol === 'OWNER', 'Solo el propietario puede crear otra cuenta de propietario.');
+    exigirCorreoInstitucional(input.email);
     if (input.departamentoId) {
       const dep = await this.prisma.departamento.findFirst({
         where: { id: input.departamentoId, organizationId },
@@ -57,17 +62,10 @@ export class EquipoService {
       });
       if (yaMiembro) throw new ConflictException('Ese usuario ya pertenece a esta organización');
     } else {
-      const passwordHash = await bcrypt.hash(input.password, 10);
-      user = await this.prisma.user.create({
-        data: { nombre: input.nombre, email: input.email, passwordHash },
-      });
-      // A diferencia del auto-registro público, agregar un miembro acá no mandaba ningún correo:
-      // quedaba con emailVerified=null para siempre, bloqueado en login() sin que nadie se
-      // enterara. reenviarVerificacion ya trae su propio guard (no reenvía si ya está verificado).
-      await this.authService.reenviarVerificacion(user.email);
+      user = await this.prisma.user.create({ data: { nombre: input.nombre, email: input.email } });
     }
 
-    return this.prisma.membership.create({
+    const miembro = await this.prisma.membership.create({
       data: {
         userId: user.id,
         organizationId,
@@ -77,6 +75,21 @@ export class EquipoService {
       },
       select: MIEMBRO_SELECT,
     });
+    // Si la invitación no sale (correo caído), el miembro ya quedó creado: se avisa para que se
+    // reenvíe desde Equipo en vez de fallar toda la operación.
+    const avisoInvitacion = user.emailVerified ? null : await this.enviarInvitacion(user.id);
+    return { ...miembro, avisoInvitacion };
+  }
+
+  /** null si se envió; si no, el motivo para mostrarlo en la interfaz. */
+  private async enviarInvitacion(userId: string): Promise<string | null> {
+    try {
+      await this.authService.invitar(userId);
+      return null;
+    } catch (err) {
+      this.logger.warn(`No se pudo enviar la invitación a ${userId}: ${err instanceof Error ? err.message : err}`);
+      return `El usuario se creó, pero no se pudo enviar el correo de activación: ${err instanceof Error ? err.message : 'error desconocido'}. Usa "Reenviar invitación".`;
+    }
   }
 
   async actualizarMiembro(organizationId: string, membershipId: string, input: ActualizarMiembroInput, actor: { rol: RolMiembro; membershipId: string | null }) {
@@ -113,20 +126,31 @@ export class EquipoService {
 
     // nombre/email viven en User, no en Membership — un mismo User puede pertenecer a varias
     // organizaciones, así que el cambio de nombre/email es global a la persona, no solo a este workspace.
+    let cambioCorreo = false;
     if (input.nombre !== undefined || input.email !== undefined) {
-      if (input.email) {
+      const actual = await this.prisma.user.findUniqueOrThrow({ where: { id: miembro.userId } });
+      cambioCorreo = !!input.email && input.email !== actual.email;
+      if (cambioCorreo) {
+        exigirCorreoInstitucional(input.email!);
         const existente = await this.prisma.user.findUnique({ where: { email: input.email } });
-        if (existente && existente.id !== miembro.userId) {
-          throw new ConflictException('Ya existe un usuario con ese correo');
-        }
+        if (existente) throw new ConflictException('Ya existe un usuario con ese correo');
       }
-      await this.prisma.user.update({
-        where: { id: miembro.userId },
-        data: { nombre: input.nombre, email: input.email },
-      });
+      const ahora = new Date();
+      await this.prisma.$transaction([
+        this.prisma.user.update({
+          where: { id: miembro.userId },
+          // El acceso depende del correo: si cambia, la cuenta vuelve a activarse desde el nuevo
+          // buzón (sin contraseña ni sesiones vigentes). Así quien cambia el correo no puede
+          // quedarse con la cuenta de otra persona.
+          data: cambioCorreo
+            ? { nombre: input.nombre, email: input.email, passwordHash: null, emailVerified: null, sesionesValidasDesde: ahora }
+            : { nombre: input.nombre },
+        }),
+        ...(cambioCorreo ? [this.prisma.passwordResetToken.updateMany({ where: { userId: miembro.userId, usedAt: null }, data: { usedAt: ahora } })] : []),
+      ]);
     }
 
-    return this.prisma.membership.update({
+    const actualizado = await this.prisma.membership.update({
       where: { id: membershipId },
       data: {
         rol: input.rol,
@@ -135,34 +159,25 @@ export class EquipoService {
       },
       select: MIEMBRO_SELECT,
     });
+    const avisoInvitacion = cambioCorreo ? await this.enviarInvitacion(miembro.userId) : null;
+    return { ...actualizado, avisoInvitacion };
   }
 
-  /** Los miembros agregados por un admin (agregarMiembro) nunca reciben el correo de
-   *  verificación que sí dispara el auto-registro público — quedarían bloqueados en login()
-   *  (exige emailVerified) para siempre si nadie los verifica. Esto le da al OWNER/ADMIN una
-   *  salida manual, sin depender de que llegue un correo (SMTP puede no estar configurado). */
-  async verificarEmail(organizationId: string, membershipId: string) {
-    const miembro = await this.prisma.membership.findFirst({ where: { id: membershipId, organizationId } });
-    if (!miembro) throw new BadRequestException('El miembro no existe en esta organización');
-    await this.prisma.user.update({ where: { id: miembro.userId }, data: { emailVerified: new Date() } });
-    return this.prisma.membership.findUniqueOrThrow({ where: { id: membershipId }, select: MIEMBRO_SELECT });
-  }
-
-  /** Vía "sana" para desatascar a alguien sin verificar: reenvía el mismo correo con el enlace
-   *  (en vez de saltárselo con verificarEmail). reenviarVerificacion ya no hace nada si el
-   *  usuario ya está verificado, así que es seguro repetir el click. */
-  async reenviarVerificacion(organizationId: string, membershipId: string) {
+  /** Para quien todavía no activó su cuenta (el enlace venció o no le llegó). No hay forma de
+   *  activar a alguien "a mano": la activación es la prueba de que el correo es suyo. */
+  async reenviarInvitacion(organizationId: string, membershipId: string) {
     const miembro = await this.prisma.membership.findFirst({
       where: { id: membershipId, organizationId },
-      include: { user: { select: { email: true } } },
+      include: { user: { select: { id: true, emailVerified: true } } },
     });
     if (!miembro) throw new BadRequestException('El miembro no existe en esta organización');
-    return this.authService.reenviarVerificacion(miembro.user.email);
+    if (miembro.user.emailVerified) throw new BadRequestException('Esta persona ya activó su cuenta. Si olvidó la contraseña, usa "Restablecer contraseña".');
+    await this.authService.invitar(miembro.user.id);
+    return { ok: true };
   }
 
-  /** Le manda al miembro el mismo correo de "olvidé mi contraseña" que dispararía él mismo —
-   *  para cuando perdió la temporal que le dio el admin al crearlo, o quiere una nueva. No
-   *  depende de que esté verificado (son cosas independientes). */
+  /** Le manda al miembro el mismo correo de "olvidé mi contraseña" que dispararía él mismo (o la
+   *  invitación, si todavía no activó su cuenta). */
   async restablecerPassword(organizationId: string, membershipId: string) {
     const miembro = await this.prisma.membership.findFirst({
       where: { id: membershipId, organizationId },

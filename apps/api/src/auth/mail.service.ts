@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
 import * as nodemailer from 'nodemailer';
 import { MarcaService } from '../marca/marca.service';
 
@@ -22,25 +22,79 @@ export class MailService {
           auth: process.env.SMTP_USER ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS } : undefined,
         })
       : null;
+    if (!this.transporter && process.env.NODE_ENV === 'production') {
+      this.logger.error('SMTP_HOST no está configurado: sin correo institucional nadie puede activar su cuenta ni recibir el código para iniciar sesión.');
+    }
   }
 
-  /** Si no hay SMTP configurado (típico en dev local), el link se imprime en la consola del
-   *  API en vez de enviarse por correo — así el flujo completo se puede probar sin credenciales
-   *  de un proveedor de correo real. En producción, configurar SMTP_HOST/PORT/USER/PASS/FROM. */
-  async enviarResetPassword(destinatario: string, nombre: string, link: string) {
+  /** Correos de acceso (enlace para definir la contraseña y código de inicio de sesión). Sin
+   *  SMTP, en desarrollo el contenido se imprime en el log del API para poder probar el flujo; en
+   *  producción NO: un código o enlace en el log dejaría entrar a quien lea el log, así que se
+   *  corta con un error claro (el acceso depende de que el correo institucional esté configurado). */
+  private async enviarAcceso(destinatario: string, asunto: string, texto: string, html: string, resumenLog: string) {
     if (!this.transporter) {
-      this.logger.warn(`SMTP no configurado — link de reset para ${destinatario}: ${link}`);
+      if (process.env.NODE_ENV === 'production') {
+        this.logger.error(`SMTP no configurado: no se pudo enviar "${asunto}" a ${destinatario}.`);
+        throw new ServiceUnavailableException('El servidor no tiene configurado el correo institucional (SMTP). Avisa al área de Sistemas.');
+      }
+      this.logger.warn(`SMTP no configurado (desarrollo) — ${resumenLog}`);
       return;
     }
-
     const marca = await this.marca.nombre();
     await this.transporter.sendMail({
       from: process.env.SMTP_FROM || `${marca} <${process.env.SMTP_USER}>`,
       to: destinatario,
-      subject: `Restablece tu contraseña — ${marca}`,
-      text: `Hola ${nombre},\n\nRecibimos una solicitud para restablecer tu contraseña. Este link es válido por 1 hora:\n\n${link}\n\nSi no fuiste tú, ignora este correo.`,
-      html: `<p>Hola ${esc(nombre)},</p><p>Recibimos una solicitud para restablecer tu contraseña. Este link es válido por 1 hora:</p><p><a href="${esc(link)}">${esc(link)}</a></p><p>Si no fuiste tú, ignora este correo.</p>`,
+      subject: `${asunto} — ${marca}`,
+      text: texto,
+      html,
     });
+  }
+
+  async enviarResetPassword(destinatario: string, nombre: string, link: string) {
+    await this.enviarAcceso(
+      destinatario, 'Restablece tu contraseña',
+      `Hola ${nombre},
+
+Recibimos una solicitud para restablecer tu contraseña. Este link es válido por 1 hora:
+
+${link}
+
+Si no fuiste tú, ignora este correo y avisa al área de Sistemas.`,
+      `<p>Hola ${esc(nombre)},</p><p>Recibimos una solicitud para restablecer tu contraseña. Este link es válido por 1 hora:</p><p><a href="${esc(link)}">${esc(link)}</a></p><p>Si no fuiste tú, ignora este correo y avisa al área de Sistemas.</p>`,
+      `link de reset para ${destinatario}: ${link}`,
+    );
+  }
+
+  /** Alta de un usuario: el administrador lo crea y la persona define su contraseña desde este
+   *  enlace (el administrador nunca la conoce, y abrirlo prueba que el buzón es suyo). */
+  async enviarInvitacion(destinatario: string, nombre: string, link: string, horasValidez: number) {
+    const marca = await this.marca.nombre();
+    await this.enviarAcceso(
+      destinatario, 'Activa tu cuenta',
+      `Hola ${nombre},
+
+Se creó tu usuario en ${marca}. Para activarlo, define tu contraseña en este enlace (válido por ${horasValidez} horas):
+
+${link}
+
+Cada vez que inicies sesión te enviaremos además un código a este correo.`,
+      `<p>Hola ${esc(nombre)},</p><p>Se creó tu usuario en <b>${esc(marca)}</b>. Para activarlo, define tu contraseña en este enlace (válido por ${horasValidez} horas):</p><p><a href="${esc(link)}">${esc(link)}</a></p><p>Cada vez que inicies sesión te enviaremos además un código a este correo.</p>`,
+      `invitación para ${destinatario}: ${link}`,
+    );
+  }
+
+  /** Segundo factor: código de un solo uso para terminar de iniciar sesión. */
+  async enviarCodigoAcceso(destinatario: string, nombre: string, codigo: string, minutosValidez: number) {
+    await this.enviarAcceso(
+      destinatario, `Tu código de acceso: ${codigo}`,
+      `Hola ${nombre},
+
+Tu código para iniciar sesión es: ${codigo}
+
+Vence en ${minutosValidez} minutos. Si no estabas iniciando sesión, alguien conoce tu contraseña: cámbiala y avisa al área de Sistemas.`,
+      `<p>Hola ${esc(nombre)},</p><p>Tu código para iniciar sesión es:</p><p style="font-size:28px;font-weight:bold;letter-spacing:6px">${codigo}</p><p>Vence en ${minutosValidez} minutos. Si no estabas iniciando sesión, alguien conoce tu contraseña: cámbiala y avisa al área de Sistemas.</p>`,
+      `código de acceso para ${destinatario}: ${codigo}`,
+    );
   }
 
   /** ¿Hay un servidor de correo configurado? El módulo de Riesgos lo consulta para avisar en
@@ -90,23 +144,5 @@ export class MailService {
       html,
     });
     return true;
-  }
-
-  /** Igual que enviarResetPassword: si no hay SMTP configurado, el link queda en el log del
-   *  API en vez de perderse — así el registro sigue siendo probable en dev sin credenciales reales. */
-  async enviarVerificacionEmail(destinatario: string, nombre: string, link: string) {
-    if (!this.transporter) {
-      this.logger.warn(`SMTP no configurado — link de verificación para ${destinatario}: ${link}`);
-      return;
-    }
-
-    const marca = await this.marca.nombre();
-    await this.transporter.sendMail({
-      from: process.env.SMTP_FROM || `${marca} <${process.env.SMTP_USER}>`,
-      to: destinatario,
-      subject: `Confirma tu correo — ${marca}`,
-      text: `Hola ${nombre},\n\nConfirma tu correo para activar tu cuenta de ${marca}. Este link es válido por 24 horas:\n\n${link}\n\nSi no creaste esta cuenta, ignora este correo.`,
-      html: `<p>Hola ${esc(nombre)},</p><p>Confirma tu correo para activar tu cuenta de ${esc(marca)}. Este link es válido por 24 horas:</p><p><a href="${esc(link)}">${esc(link)}</a></p><p>Si no creaste esta cuenta, ignora este correo.</p>`,
-    });
   }
 }

@@ -33,16 +33,10 @@ export class EquipoController {
     return this.equipo.actualizarMiembro(orgId, id, actualizarMiembroSchema.parse(body), { rol, membershipId: actorId });
   }
 
-  @Patch('equipo/:id/verificar-email')
+  @Post('equipo/:id/reenviar-invitacion')
   @Roles('OWNER', 'ADMIN')
-  verificarEmail(@OrgId() orgId: string, @Param('id') id: string) {
-    return this.equipo.verificarEmail(orgId, id);
-  }
-
-  @Post('equipo/:id/reenviar-verificacion')
-  @Roles('OWNER', 'ADMIN')
-  reenviarVerificacion(@OrgId() orgId: string, @Param('id') id: string) {
-    return this.equipo.reenviarVerificacion(orgId, id);
+  reenviarInvitacion(@OrgId() orgId: string, @Param('id') id: string) {
+    return this.equipo.reenviarInvitacion(orgId, id);
   }
 
   @Post('equipo/:id/restablecer-password')

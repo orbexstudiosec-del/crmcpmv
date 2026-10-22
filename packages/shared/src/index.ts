@@ -30,16 +30,28 @@ export const clienteInputSchema = z.object({
 export type ClienteInput = z.infer<typeof clienteInputSchema>;
 
 // ─── Auth ───────────────────────────────────────────────────────
+// El acceso es con el correo institucional: la cuenta se activa con un enlace enviado a ese
+// correo y cada inicio de sesión pide, además de la contraseña, un código enviado al mismo correo.
 
+/// Los correos se comparan siempre en minúsculas y sin espacios: "Ana@CPMV.fin.ec " y
+/// "ana@cpmv.fin.ec" son la misma cuenta.
+export const correoSchema = z.string().trim().toLowerCase().pipe(z.string().email('Correo inválido'));
 
 export const loginSchema = z.object({
-  email: z.string().email(),
+  email: correoSchema,
   password: z.string().min(1),
 });
 export type LoginInput = z.infer<typeof loginSchema>;
 
+/// Segundo paso del login: el código de 6 dígitos que llegó al correo institucional.
+export const loginCodigoSchema = z.object({
+  desafio: z.string().min(1).max(64),
+  codigo: z.string().trim().regex(/^\d{6}$/, 'El código tiene 6 dígitos'),
+});
+export type LoginCodigoInput = z.infer<typeof loginCodigoSchema>;
+
 export const solicitarResetSchema = z.object({
-  email: z.string().email(),
+  email: correoSchema,
 });
 export type SolicitarResetInput = z.infer<typeof solicitarResetSchema>;
 
@@ -49,21 +61,10 @@ export const restablecerPasswordSchema = z.object({
 });
 export type RestablecerPasswordInput = z.infer<typeof restablecerPasswordSchema>;
 
-export const verificarEmailSchema = z.object({
-  token: z.string().min(1),
-});
-export type VerificarEmailInput = z.infer<typeof verificarEmailSchema>;
-
-export const reenviarVerificacionSchema = z.object({
-  email: z.string().email(),
-});
-export type ReenviarVerificacionInput = z.infer<typeof reenviarVerificacionSchema>;
-
-/// Mensaje exacto que devuelve /auth/login cuando la cuenta existe y la contraseña es
-/// correcta pero el correo no está verificado — el frontend lo compara para ofrecer
-/// "reenviar verificación" en vez de solo mostrar el error.
-export const MENSAJE_EMAIL_NO_VERIFICADO =
-  'Tu correo aún no está verificado. Revisa tu bandeja de entrada o pide que te reenviemos el link.';
+/// Mensaje que devuelve /auth/login cuando la contraseña es correcta pero la persona todavía no
+/// activó su cuenta desde el enlace que le llegó al correo institucional.
+export const MENSAJE_CUENTA_NO_ACTIVADA =
+  'Tu cuenta todavía no está activada. Usa el enlace que llegó a tu correo institucional o pide al administrador que te reenvíe la invitación.';
 
 // ─── Equipo (roles, departamentos y sucursales) ───────────────────
 
@@ -88,10 +89,11 @@ export const actualizarSucursalSchema = sucursalInputSchema.partial();
 export type ActualizarSucursalInput = z.infer<typeof actualizarSucursalSchema>;
 export type SucursalInput = z.infer<typeof sucursalInputSchema>;
 
+/// Sin contraseña: la persona la define desde el enlace de activación que le llega a su correo
+/// institucional (el administrador nunca la conoce).
 export const miembroInputSchema = z.object({
   nombre: z.string().min(1),
-  email: z.string().email(),
-  password: z.string().min(8, 'La contraseña debe tener al menos 8 caracteres'),
+  email: correoSchema,
   rol: rolSchema.default('AGENTE'),
   departamentoId: z.string().optional(),
   sucursalId: z.string().optional(),
@@ -100,7 +102,7 @@ export type MiembroInput = z.infer<typeof miembroInputSchema>;
 
 export const actualizarMiembroSchema = z.object({
   nombre: z.string().min(1).optional(),
-  email: z.string().email().optional(),
+  email: correoSchema.optional(),
   rol: rolSchema.optional(),
   departamentoId: z.string().nullable().optional(),
   sucursalId: z.string().nullable().optional(),

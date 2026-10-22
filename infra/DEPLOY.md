@@ -13,6 +13,9 @@ Cada empresa tiene su propia instalación: su servidor, su base de datos, su nom
   alcanzable desde internet (`/api/mensajes/webhook/meta/...`). Sin dominio el CRM funciona
   por IP, pero no recibe mensajes de WhatsApp.
 - Salida a internet hacia `graph.facebook.com` para enviar mensajes.
+- Una cuenta de correo institucional que pueda enviar por SMTP (ej. `crm@cpmv.fin.ec`). Es
+  obligatoria: cada usuario activa su cuenta con un enlace enviado a su correo institucional
+  y recibe ahí un código en cada inicio de sesión.
 
 ## Instalar
 
@@ -30,7 +33,9 @@ El instalador pregunta:
 | Nombre del CRM | Marca blanca: pestaña del navegador, login, menú y correos |
 | Nombre de la empresa | La organización dueña de la instalación |
 | Dominio | HTTPS automático (Let's Encrypt). Vacío = por IP, sin HTTPS |
-| Nombre, correo y contraseña del administrador | Primer usuario, con rol propietario |
+| Dominio del correo institucional | Solo se pueden crear usuarios con correos de ese dominio |
+| Servidor, puerto, usuario y contraseña SMTP | Envío de la activación de cuentas y de los códigos de acceso |
+| Nombre, correo institucional y contraseña del administrador | Primer usuario, con rol propietario |
 
 Genera las claves (`AUTH_SECRET`, `ENCRYPTION_KEY` y contraseña de Postgres), escribe
 `.env` y levanta los servicios. Al terminar borra `ADMIN_PASSWORD` del
@@ -58,16 +63,24 @@ tocan; se pueden borrar a mano cuando ya no se necesiten.
 ```bash
 ./install.sh                     # actualizar tras copiar una versión nueva (conserva datos y claves)
 docker compose ps                # estado
-docker compose logs -f api       # logs del backend (aquí salen los enlaces de correo si no hay SMTP)
+docker compose logs -f api       # logs del backend
 docker compose exec -T postgres pg_dump -U crm crm > respaldo.sql   # copia de seguridad
 ```
 
 Cambiar el nombre, el logo o el color del CRM no requiere tocar el servidor: se hace en
 **Configuración → Marca**.
 
-## Correo saliente
+## Acceso de los usuarios
 
-Para que "olvidé mi contraseña" y la verificación de usuarios lleguen por correo, completa
-`SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASS` y `SMTP_FROM` en `.env` y ejecuta
-`docker compose up -d api`. Sin SMTP el administrador puede verificar usuarios a mano desde
-**Equipo**.
+1. El administrador crea al usuario en **Equipo** con su correo institucional (no se aceptan
+   correos de otros dominios). No le asigna contraseña.
+2. Al usuario le llega un enlace (válido 72 h) para activar su cuenta y definir su contraseña.
+   Si venció, el administrador usa **Reenviar invitación**.
+3. En cada inicio de sesión, después de la contraseña, se envía un código de 6 dígitos al
+   correo institucional (vence en 10 minutos, 5 intentos).
+
+Si se cambia el correo de un usuario, la cuenta vuelve a activarse desde el nuevo buzón: se
+cierran sus sesiones y su contraseña deja de servir.
+
+Para cambiar el servidor de correo, edita `SMTP_*` en `.env` y ejecuta `docker compose up -d api`.
+Sin SMTP, en producción nadie puede activar su cuenta ni iniciar sesión.

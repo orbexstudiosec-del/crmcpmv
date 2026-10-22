@@ -70,20 +70,23 @@ model User {
   email         String    @unique
   nombre        String
   passwordHash  String?
+  /// Fecha en que la persona activó su cuenta desde el enlace enviado a su correo institucional
+  /// (o sea, demostró que ese buzón es suyo). Sin esto no puede iniciar sesión.
   emailVerified DateTime?
   /// Las sesiones (JWT) emitidas antes de este momento dejan de valer. Se marca al cambiar la
-  /// contraseña, para que restablecerla expulse a quien tuviera una sesión robada.
+  /// contraseña o el correo, para que eso expulse a quien tuviera una sesión robada.
   sesionesValidasDesde DateTime?
   createdAt     DateTime  @default(now())
   updatedAt     DateTime  @updatedAt
 
-  memberships             Membership[]
-  passwordResetTokens     PasswordResetToken[]
-  emailVerificationTokens EmailVerificationToken[]
+  memberships         Membership[]
+  passwordResetTokens PasswordResetToken[]
+  codigosAcceso       CodigoAcceso[]
 }
 
-/// Token de un solo uso para el flujo de "olvidé mi contraseña". Se guarda el hash (sha256), nunca
-/// el token en claro — el valor en claro solo existe en el link que se envía por correo.
+/// Token de un solo uso para definir la contraseña: la activación de una cuenta nueva y el
+/// flujo de "olvidé mi contraseña" usan el mismo enlace. Se guarda el hash (sha256), nunca el
+/// token en claro — el valor en claro solo existe en el link que se envía por correo.
 model PasswordResetToken {
   id        String    @id @default(cuid())
   userId    String
@@ -97,16 +100,18 @@ model PasswordResetToken {
   @@index([userId])
 }
 
-/// Token de un solo uso para verificar el email al registrarse (anti-bots: una cuenta sin
-/// verificar no puede iniciar sesión). Mismo patrón que PasswordResetToken — se guarda el
-/// hash, nunca el token en claro.
-model EmailVerificationToken {
-  id        String    @id @default(cuid())
-  userId    String
-  tokenHash String    @unique
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime  @default(now())
+/// Segundo factor del inicio de sesión: después de la contraseña se envía un código de 6
+/// dígitos al correo institucional. El `id` es el "desafío" que el navegador devuelve junto con
+/// el código. Se guarda el HMAC del código (con AUTH_SECRET), nunca el código en claro: 6 dígitos
+/// en un hash simple se adivinan al instante con una copia de la base.
+model CodigoAcceso {
+  id         String    @id @default(cuid())
+  userId     String
+  codigoHash String
+  expiresAt  DateTime
+  intentos   Int       @default(0)
+  usadoEn    DateTime?
+  createdAt  DateTime  @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
