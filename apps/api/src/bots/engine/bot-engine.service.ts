@@ -171,7 +171,9 @@ export class BotEngineService {
           }
           await this.prisma.conversacion.update({ where: { id: run.conversacionId }, data: { botPausado: true, estado: 'PENDIENTE' } });
           if (node.data.notifyPhone) {
-            void enviarTexto(this.integraciones, run.organizationId, 'WHATSAPP_QR', node.data.notifyPhone, `Un cliente necesita atención: ${conversacion.contactoNombre || numero}`).catch(() => null);
+            // Por el mismo canal oficial. Ojo: Meta solo entrega texto libre a ese número si
+            // escribió en las últimas 24 h; si no, el aviso no llega (no rompe el flujo).
+            void enviarTexto(this.integraciones, run.organizationId, canal, node.data.notifyPhone, `Un cliente necesita atención: ${conversacion.contactoNombre || numero}`).catch(() => null);
           }
           await this.finalizarRun(run.id);
           return;

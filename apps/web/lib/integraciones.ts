@@ -1,7 +1,8 @@
 import type { LucideIcon } from "lucide-react";
-import { QrCode, MessageCircle, Facebook, Instagram, Music2 } from "lucide-react";
+import { MessageCircle, Facebook, Instagram, Music2 } from "lucide-react";
 
-export type CanalMensajeria = "WHATSAPP_QR" | "WHATSAPP_API" | "MESSENGER" | "INSTAGRAM" | "TIKTOK";
+/** WhatsApp solo por la API oficial de Meta: la conexión por código QR no está autorizada. */
+export type CanalMensajeria = "WHATSAPP_API" | "MESSENGER" | "INSTAGRAM" | "TIKTOK";
 export type EstadoIntegracion = "DESCONECTADO" | "PENDIENTE" | "CONECTADO" | "ERROR";
 
 export interface IntegracionEstado {
@@ -30,18 +31,6 @@ export interface CanalConfig {
 }
 
 export const CANALES_MENSAJERIA: CanalConfig[] = [
-  {
-    canal: "WHATSAPP_QR",
-    label: "WhatsApp (código QR)",
-    desc: "Conecta tu WhatsApp normal vía Evolution API (self-hosted), emparejando por QR.",
-    icon: QrCode,
-    claseIcono: "bg-emerald-50 text-emerald-600 dark:bg-emerald-500/10 dark:text-emerald-400",
-    campos: [
-      { name: "evolutionApiUrl", label: "URL de tu servidor Evolution API", type: "url", placeholder: "Se usará el servidor por defecto del sistema", opcional: true },
-      { name: "evolutionApiKey", label: "API key", type: "password", placeholder: "Se usará la del servidor por defecto", opcional: true },
-      { name: "instancia", label: "Nombre de la instancia", type: "text", placeholder: "Se genera uno automáticamente", opcional: true },
-    ],
-  },
   {
     canal: "WHATSAPP_API",
     label: "WhatsApp Business (API oficial)",

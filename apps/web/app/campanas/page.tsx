@@ -12,7 +12,6 @@ import { exportarExcel } from "@/lib/exportar";
 type Estado = "BORRADOR" | "PROGRAMADA" | "ENVIANDO" | "ENVIADA";
 type PublicoManual = "CLIENTES" | "LEADS" | "LEADS_FORMULARIO";
 type Publico = PublicoManual;
-type CanalWhatsapp = "WHATSAPP_QR" | "WHATSAPP_API";
 
 const PUBLICO_LABEL: Record<Publico, string> = {
   CLIENTES: "Clientes",
@@ -28,7 +27,6 @@ interface Campana {
   mensaje: string | null;
   publico: Publico | null;
   formularioLeadId: string | null;
-  canalWhatsapp: CanalWhatsapp | null;
   plantillaMeta: string | null;
   plantillaMetaIdioma: string | null;
   totalDestinatarios: number;
@@ -68,11 +66,6 @@ const PUBLICO_OPCIONES: { v: PublicoManual; l: string; icon: typeof Users }[] = 
   { v: "LEADS_FORMULARIO", l: "Leads de un formulario", icon: ClipboardList },
 ];
 
-const CANAL_WHATSAPP_LABEL: Record<CanalWhatsapp, string> = {
-  WHATSAPP_QR: "WhatsApp (código QR)",
-  WHATSAPP_API: "WhatsApp (API oficial de Meta)",
-};
-
 const ESTADO_ESTILO: Record<Estado, string> = {
   BORRADOR: "bg-surface text-muted ring-1 ring-border",
   PROGRAMADA: "bg-amber-50 text-amber-600 ring-1 ring-amber-200",
@@ -94,13 +87,13 @@ export default function CampanasPage() {
   const [conteoPublico, setConteoPublico] = useState<Record<"CLIENTES" | "LEADS", number> | null>(null);
   const [formularios, setFormularios] = useState<FormularioOpcion[]>([]);
   const [conteoFormulario, setConteoFormulario] = useState<number | null>(null);
-  const [integracionesEstado, setIntegracionesEstado] = useState<Record<CanalWhatsapp, boolean> | null>(null);
+  /** ¿WhatsApp Business (API oficial) conectado? null = todavía no se sabe. */
+  const [whatsappConectado, setWhatsappConectado] = useState<boolean | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [abierto, setAbierto] = useState(false);
   const [editando, setEditando] = useState<Campana | null>(null);
   const [publicoForm, setPublicoForm] = useState<PublicoManual>("CLIENTES");
   const [formularioIdForm, setFormularioIdForm] = useState("");
-  const [canalWhatsappForm, setCanalWhatsappForm] = useState<CanalWhatsapp>("WHATSAPP_QR");
   const [plantillaMetaForm, setPlantillaMetaForm] = useState("");
   const [plantillaMetaIdiomaForm, setPlantillaMetaIdiomaForm] = useState("es");
   const [guardando, setGuardando] = useState(false);
@@ -126,10 +119,7 @@ export default function CampanasPage() {
       .catch(() => {});
     api<FormularioOpcion[]>("/formularios-lead").then(setFormularios).catch(() => {});
     api<{ canal: string; estado: string }[]>("/integraciones")
-      .then((r) => setIntegracionesEstado({
-        WHATSAPP_QR: r.find((i) => i.canal === "WHATSAPP_QR")?.estado === "CONECTADO",
-        WHATSAPP_API: r.find((i) => i.canal === "WHATSAPP_API")?.estado === "CONECTADO",
-      }))
+      .then((r) => setWhatsappConectado(r.find((i) => i.canal === "WHATSAPP_API")?.estado === "CONECTADO"))
       .catch(() => {});
   }, []);
 
@@ -167,7 +157,6 @@ export default function CampanasPage() {
     setEditando(null);
     setPublicoForm("CLIENTES");
     setFormularioIdForm("");
-    setCanalWhatsappForm(integracionesEstado?.WHATSAPP_QR !== false ? "WHATSAPP_QR" : "WHATSAPP_API");
     setPlantillaMetaForm("");
     setPlantillaMetaIdiomaForm("es");
     setAbierto(true);
@@ -177,7 +166,6 @@ export default function CampanasPage() {
     setEditando(c);
     setPublicoForm(c.publico === "LEADS" ? "LEADS" : c.publico === "LEADS_FORMULARIO" ? "LEADS_FORMULARIO" : "CLIENTES");
     setFormularioIdForm(c.formularioLeadId ?? "");
-    setCanalWhatsappForm(c.canalWhatsapp ?? "WHATSAPP_QR");
     setPlantillaMetaForm(c.plantillaMeta ?? "");
     setPlantillaMetaIdiomaForm(c.plantillaMetaIdioma ?? "es");
     setAbierto(true);
@@ -193,10 +181,9 @@ export default function CampanasPage() {
       canal: "WHATSAPP",
       publico: publicoForm,
       formularioLeadId: publicoForm === "LEADS_FORMULARIO" ? formularioIdForm || undefined : undefined,
-      canalWhatsapp: canalWhatsappForm,
-      mensaje: canalWhatsappForm === "WHATSAPP_QR" ? f.get("mensaje") : undefined,
-      plantillaMeta: canalWhatsappForm === "WHATSAPP_API" ? plantillaMetaForm || undefined : undefined,
-      plantillaMetaIdioma: canalWhatsappForm === "WHATSAPP_API" ? plantillaMetaIdiomaForm || "es" : undefined,
+      canalWhatsapp: "WHATSAPP_API",
+      plantillaMeta: plantillaMetaForm || undefined,
+      plantillaMetaIdioma: plantillaMetaIdiomaForm || "es",
     };
     try {
       if (editando) {
@@ -294,16 +281,16 @@ export default function CampanasPage() {
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
           <h1 className="font-display text-2xl font-bold tracking-tight text-foreground">Campañas</h1>
-          <p className="mt-1 text-sm text-muted">Envía un mensaje de WhatsApp a todos tus clientes o leads y sigue el resultado.</p>
+          <p className="mt-1 text-sm text-muted">Envía una plantilla aprobada de WhatsApp Business a tus clientes o leads y sigue el resultado.</p>
         </div>
         <div className="flex items-center gap-3">
-          {integracionesEstado && (integracionesEstado.WHATSAPP_QR || integracionesEstado.WHATSAPP_API) && (
+          {whatsappConectado === true && (
             <span className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 ring-1 ring-emerald-200 dark:bg-emerald-500/10 dark:text-emerald-400 dark:ring-emerald-500/20">
               <span className="h-1.5 w-1.5 rounded-full bg-emerald-500" />
-              WhatsApp conectado {integracionesEstado.WHATSAPP_QR && integracionesEstado.WHATSAPP_API ? "(QR y API)" : integracionesEstado.WHATSAPP_API ? "(API oficial)" : "(QR)"}
+              WhatsApp Business conectado
             </span>
           )}
-          {integracionesEstado && !integracionesEstado.WHATSAPP_QR && !integracionesEstado.WHATSAPP_API && (
+          {whatsappConectado === false && (
             <Link
               href="/configuracion"
               className="inline-flex items-center gap-1.5 whitespace-nowrap rounded-full bg-amber-50 px-3 py-1.5 text-xs font-medium text-amber-700 ring-1 ring-amber-200 transition hover:bg-amber-100 dark:bg-amber-500/10 dark:text-amber-400 dark:ring-amber-500/20"
@@ -359,48 +346,23 @@ export default function CampanasPage() {
             </label>
           )}
 
-          <label className="block">
-            <span className={CAMPO_LABEL}>Canal de envío</span>
-            <select value={canalWhatsappForm} onChange={(e) => setCanalWhatsappForm(e.target.value as CanalWhatsapp)} className={CAMPO_INPUT}>
-              {(["WHATSAPP_QR", "WHATSAPP_API"] as CanalWhatsapp[])
-                .filter((c) => integracionesEstado?.[c] || c === canalWhatsappForm)
-                .map((c) => <option key={c} value={c}>{CANAL_WHATSAPP_LABEL[c]}</option>)}
-            </select>
-            {integracionesEstado && !integracionesEstado[canalWhatsappForm] && (
-              <span className="mt-1 block text-xs text-amber-600 dark:text-amber-400">
-                No tienes {CANAL_WHATSAPP_LABEL[canalWhatsappForm]} conectado — ve a <Link href="/configuracion" className="underline">Configuración</Link>.
-              </span>
-            )}
-          </label>
-
-          {canalWhatsappForm === "WHATSAPP_QR" ? (
-            <label className="block">
-              <span className={CAMPO_LABEL}>Mensaje</span>
-              <textarea
-                name="mensaje"
-                required
-                rows={4}
-                defaultValue={editando?.mensaje ?? ""}
-                placeholder="Hola {{nombre}}, te contamos que…"
-                className={CAMPO_INPUT}
-              />
-              <span className="mt-1 block text-xs text-muted">Usa <code className="rounded bg-surface px-1 py-0.5">{"{{nombre}}"}</code> para insertar el nombre de cada destinatario.</span>
-            </label>
-          ) : (
-            <>
-              <label className="block">
-                <span className={CAMPO_LABEL}>Nombre de la plantilla</span>
-                <input value={plantillaMetaForm} onChange={(e) => setPlantillaMetaForm(e.target.value)} required placeholder="Ej. bienvenida_feria" className={CAMPO_INPUT} />
-              </label>
-              <label className="block">
-                <span className={CAMPO_LABEL}>Idioma de la plantilla</span>
-                <input value={plantillaMetaIdiomaForm} onChange={(e) => setPlantillaMetaIdiomaForm(e.target.value)} placeholder="es" className={CAMPO_INPUT} />
-              </label>
-              <p className="text-xs text-muted">
-                El nombre debe coincidir EXACTO con una plantilla ya aprobada en tu cuenta de Meta Business Manager — Meta exige plantilla pre-aprobada para escribirle primero a un contacto nuevo. Se envía con el primer nombre del lead como único parámetro.
-              </p>
-            </>
+          {whatsappConectado === false && (
+            <p className="text-xs text-amber-600 dark:text-amber-400">
+              No tienes WhatsApp Business (API oficial) conectado — ve a <Link href="/configuracion" className="underline">Configuración</Link>.
+            </p>
           )}
+
+          <label className="block">
+            <span className={CAMPO_LABEL}>Nombre de la plantilla</span>
+            <input value={plantillaMetaForm} onChange={(e) => setPlantillaMetaForm(e.target.value)} required placeholder="Ej. bienvenida_feria" className={CAMPO_INPUT} />
+          </label>
+          <label className="block">
+            <span className={CAMPO_LABEL}>Idioma de la plantilla</span>
+            <input value={plantillaMetaIdiomaForm} onChange={(e) => setPlantillaMetaIdiomaForm(e.target.value)} placeholder="es" className={CAMPO_INPUT} />
+          </label>
+          <p className="text-xs text-muted">
+            El nombre debe coincidir EXACTO con una plantilla ya aprobada en tu cuenta de Meta Business Manager — Meta exige plantilla pre-aprobada para escribirle primero a un contacto nuevo. Se envía con el primer nombre del lead como único parámetro.
+          </p>
 
           <div className="flex gap-2">
             <button disabled={guardando} className="btn-primary px-5 py-2 text-sm disabled:opacity-50">
@@ -422,7 +384,7 @@ export default function CampanasPage() {
             <div>
               <p className="font-display text-base font-semibold text-foreground">Manda tu primer mensaje masivo</p>
               <p className="mx-auto mt-1 max-w-sm text-sm text-muted">
-                Escribe un mensaje, elige si va para tus clientes o tus leads, y se envía por WhatsApp a cada uno con su nombre.
+                Elige una plantilla aprobada en Meta y si va para tus clientes o tus leads; se envía por WhatsApp Business a cada uno con su nombre.
               </p>
             </div>
             <button onClick={abrirNueva} className="btn-primary mt-1 px-5 py-2 text-sm">+ Nueva campaña</button>

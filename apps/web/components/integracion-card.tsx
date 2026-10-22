@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useState } from "react";
 import { CheckCircle2, XCircle, Loader2, Clock, Copy } from "lucide-react";
 import { api } from "@/lib/api";
 import { confirmDialog } from "@/components/confirm-dialog";
@@ -14,13 +14,12 @@ const ESTADO_ESTILO: Record<string, string> = {
 };
 const ESTADO_LABEL: Record<string, string> = {
   CONECTADO: "Conectado",
-  PENDIENTE: "Esperando escaneo",
+  PENDIENTE: "Pendiente",
   ERROR: "Error de conexión",
   DESCONECTADO: "Desconectado",
 };
 
 interface RespuestaConectar extends IntegracionEstado {
-  qrCode?: string;
   webhookUrl?: string;
   webhookAdvertencia?: string | null;
 }
@@ -31,45 +30,9 @@ export function IntegracionCard({
   const [abierto, setAbierto] = useState(false);
   const [guardando, setGuardando] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [qrCode, setQrCode] = useState<string | null>(null);
   const [webhookUrl, setWebhookUrl] = useState<string | null>(null);
   const [avisoWebhook, setAvisoWebhook] = useState<string | null>(null);
   const [copiado, setCopiado] = useState(false);
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => () => detenerPolling(), []);
-
-  function detenerPolling() {
-    if (pollRef.current) {
-      clearInterval(pollRef.current);
-      pollRef.current = null;
-    }
-  }
-
-  function iniciarPolling() {
-    detenerPolling();
-    pollRef.current = setInterval(async () => {
-      try {
-        const r = await api<IntegracionEstado>("/integraciones/whatsapp-qr/estado");
-        if (r.estado === "CONECTADO") {
-          detenerPolling();
-          setQrCode(null);
-          setAbierto(false);
-          onCambio();
-        } else if (r.estado === "ERROR") {
-          detenerPolling();
-          setError("Se perdió la conexión con tu servidor Evolution API mientras esperábamos el escaneo.");
-        }
-      } catch {
-        // fallo de red puntual del polling: se reintenta en el próximo tick
-      }
-    }, 3000);
-  }
-
-  /** Si todos los campos del canal son opcionales (hoy solo WhatsApp QR, gracias al servidor
-   *  Evolution por defecto), no tiene sentido pedirle nada al cliente: "Conectar" va directo
-   *  al QR sin pasar por un formulario. */
-  const sinFormulario = cfg.campos.every((c) => c.opcional);
 
   async function conectarCon(credenciales: Record<string, string>) {
     setError(null);
@@ -82,12 +45,9 @@ export function IntegracionCard({
         body: JSON.stringify({ canal: cfg.canal, credenciales }),
       });
       if (r.webhookAdvertencia) setAvisoWebhook(r.webhookAdvertencia);
-      if (r.qrCode) {
-        setQrCode(r.qrCode);
-        iniciarPolling();
-      } else if (r.webhookUrl) {
-        // Conectado — a diferencia del QR, acá no hay más polling que hacer, pero falta un
-        // paso manual en Meta (pegar esta URL) para que los mensajes entrantes lleguen.
+      if (r.webhookUrl) {
+        // Conectado, pero falta un paso manual en Meta (pegar esta URL) para que los
+        // mensajes entrantes lleguen.
         setWebhookUrl(r.webhookUrl);
         onCambio();
       } else {
@@ -121,18 +81,11 @@ export function IntegracionCard({
 
   function alternarAbierto() {
     if (abierto) return cancelar();
-    if (sinFormulario) {
-      setAbierto(true);
-      void conectarCon({});
-      return;
-    }
     setAbierto(true);
   }
 
   async function desconectar() {
     if (!(await confirmDialog(`¿Desconectar ${cfg.label}?`))) return;
-    detenerPolling();
-    setQrCode(null);
     try {
       await api(`/integraciones/${cfg.canal}`, { method: "DELETE" });
       onCambio();
@@ -142,8 +95,6 @@ export function IntegracionCard({
   }
 
   function cancelar() {
-    detenerPolling();
-    setQrCode(null);
     setWebhookUrl(null);
     setError(null);
     setAvisoWebhook(null);
@@ -187,7 +138,6 @@ export function IntegracionCard({
             ) : (
               <button
                 onClick={alternarAbierto}
-                disabled={guardando && sinFormulario && !abierto}
                 className={`rounded-lg px-2.5 py-1.5 text-xs font-medium transition disabled:opacity-50 ${
                   abierto ? "bg-surface text-muted hover:text-foreground" : "bg-primary-soft text-primary hover:bg-primary hover:text-white"
                 }`}
@@ -203,20 +153,7 @@ export function IntegracionCard({
         <div className="mt-3 border-t border-border pt-3">
           {error && <p className="mb-2.5 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>}
 
-          {qrCode ? (
-            <div className="flex flex-col items-center gap-2 py-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img src={qrCode} alt="Código QR de WhatsApp" className="h-48 w-48 rounded-lg border border-border" />
-              <p className="flex items-center gap-1.5 text-xs text-muted">
-                <Loader2 size={12} className="animate-spin" /> Escanéalo en WhatsApp → Dispositivos vinculados
-              </p>
-              {avisoWebhook && (
-                <p className="mt-1 max-w-xs text-center text-[11px] text-amber-600">
-                  El emparejamiento funciona, pero no pudimos configurar la recepción automática de mensajes: {avisoWebhook}
-                </p>
-              )}
-            </div>
-          ) : webhookUrl ? (
+          {webhookUrl ? (
             <div className="flex flex-col gap-2 py-1">
               <p className="flex items-center gap-1.5 text-xs font-medium text-emerald-600 dark:text-emerald-400">
                 <CheckCircle2 size={13} /> Conectado — falta un paso para recibir mensajes
@@ -236,10 +173,6 @@ export function IntegracionCard({
               <button type="button" onClick={() => { setWebhookUrl(null); setAbierto(false); }} className="btn-outline mt-1 py-1.5 text-xs">
                 Listo
               </button>
-            </div>
-          ) : sinFormulario ? (
-            <div className="flex flex-col items-center gap-2 py-4 text-xs text-muted">
-              <Loader2 size={16} className="animate-spin text-primary" /> Generando código QR…
             </div>
           ) : (
             <form onSubmit={conectar} className="space-y-2.5">

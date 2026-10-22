@@ -2,21 +2,13 @@ import { Body, Controller, Get, Headers, HttpCode, Param, Post, Query, Req, Res 
 import type { Request, Response } from 'express';
 import { MensajesService } from './mensajes.service';
 
-/** Sin guards de auth a propósito: ni Evolution API ni Meta mandan un JWT, mandan el evento
- * tal cual. La validación es el `secret` en la propia URL y, para Meta, además la firma
- * X-Hub-Signature-256 cuando la integración tiene su App Secret (ver common/webhook-url.ts). */
+/** Sin guards de auth a propósito: Meta no manda un JWT, manda el evento tal cual. La
+ * validación es el `secret` en la propia URL y además la firma X-Hub-Signature-256 cuando la
+ * integración tiene su App Secret (ver common/webhook-url.ts). Es la única ruta del CRM que
+ * tiene que ser alcanzable desde internet. */
 @Controller('mensajes/webhook')
 export class MensajesWebhookController {
   constructor(private readonly mensajes: MensajesService) {}
-
-  @Post('evolution/:organizationId/:secret')
-  recibirEvolution(
-    @Param('organizationId') organizationId: string,
-    @Param('secret') secret: string,
-    @Body() body: unknown,
-  ) {
-    return this.mensajes.procesarWebhookEvolution(organizationId, secret, body);
-  }
 
   /** Meta llama esto UNA vez, al pegar la URL en su dashboard — hay que devolver el
    * `hub.challenge` tal cual (texto plano, no JSON) para confirmar que la URL es nuestra. */

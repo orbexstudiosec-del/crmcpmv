@@ -23,12 +23,21 @@ pruebas de SSRF contra direcciones internas.
 | Baja | El `hub.challenge` del webhook de Meta se devolvía como HTML (XSS reflejado). | Respuesta `text/plain`. |
 | Baja | Un documento recibido por WhatsApp con mimetype HTML podía abrirse como página. | Descarga forzada como binario. |
 
+## Actualización 22/10/2026 — retiro de WhatsApp por código QR
+
+Por indicación de Sistemas, la conexión por código QR (Evolution API) no está autorizada para
+uso institucional y se retiró por completo: el servicio `evolution` y `redis`, su código, su
+configuración y sus datos (migración `20261022000000_quitar_whatsapp_qr`). WhatsApp queda solo
+por la API oficial de Meta.
+
+Con eso dejan de aplicar las filas de SSRF, de la URL de Evolution y de la API key de
+Evolution: el código afectado ya no existe. El servidor del CRM tampoco descarga archivos de
+URLs de los bots: esas URLs las descarga Meta directamente.
+
 ## Pendiente (decisión de producto o arquitectura)
 
 - El token de sesión vive en `localStorage`; ante un XSS se podría robar. Pasarlo a cookie
   `httpOnly` implica cambiar la autenticación de la web.
 - Un ADMIN puede cambiar el correo de otro usuario sin reverificación y luego pedir un reset
   a ese correo.
-- La imagen de Evolution API está en `:latest`; conviene fijar una versión antes de vender
-  instalaciones.
 - Si el API no arranca durante la instalación, `install.sh` deja `ADMIN_PASSWORD` en el `.env`.

@@ -389,16 +389,15 @@ model Campana {
   nombre         String
   canal          CanalCampana  @default(EMAIL)
   estado         EstadoCampana @default(BORRADOR)
-  /// Plantilla del mensaje — solo campañas WhatsApp QR (envío real); admite {{nombre}}. No se
-  /// usa cuando canalWhatsapp = WHATSAPP_API (ver plantillaMeta).
+  /// Texto descriptivo de la campaña. En WhatsApp lo que se envía es la plantilla de Meta.
   mensaje            String?         @db.Text
   publico            PublicoCampana?
   /// Solo relevante si publico = LEADS_FORMULARIO.
   formularioLeadId   String?
-  /// WHATSAPP_QR (default si null) o WHATSAPP_API — solo aplica si canal = WHATSAPP.
+  /// Siempre WHATSAPP_API (o null, que equivale) — solo aplica si canal = WHATSAPP.
   canalWhatsapp      CanalMensajeria?
-  /// Nombre exacto de la plantilla ya aprobada en Meta Business Manager — solo si
-  /// canalWhatsapp = WHATSAPP_API (Meta exige plantilla pre-aprobada para contactos nuevos).
+  /// Nombre exacto de la plantilla ya aprobada en Meta Business Manager — obligatorio en las
+  /// campañas de WhatsApp (Meta exige plantilla pre-aprobada para escribirle primero a alguien).
   plantillaMeta       String?
   plantillaMetaIdioma String?
   totalDestinatarios Int             @default(0)
@@ -542,7 +541,8 @@ model IntegracionCanal {
 }
 
 enum CanalMensajeria {
-  WHATSAPP_QR // Evolution API (self-hosted, pairing por código QR)
+  // WhatsApp solo por la API oficial: la conexión por código QR (Evolution API) no está
+  // autorizada para uso institucional y se retiró (migración 20261022000000_quitar_whatsapp_qr).
   WHATSAPP_API // WhatsApp Business Platform (Meta Cloud API oficial)
   MESSENGER
   INSTAGRAM
@@ -551,7 +551,7 @@ enum CanalMensajeria {
 
 enum EstadoIntegracion {
   DESCONECTADO
-  PENDIENTE // WhatsApp QR: instancia creada, esperando que el usuario escanee el código
+  PENDIENTE // conexión iniciada pero todavía sin confirmar
   CONECTADO
   ERROR
 }
@@ -578,11 +578,8 @@ model Conversacion {
   /// true = el motor de bots no interviene en esta conversación (handoff, o un humano ya
   /// respondió a mano desde el inbox). Se puede reactivar a mano desde /mensajes.
   botPausado      Boolean            @default(false)
-  /// Borrado suave: al "eliminar" una conversación se oculta en vez de purgarse, porque
-  /// el CRM re-sincroniza el historial completo desde Evolution API periódicamente (no hay
-  /// webhook público en desarrollo local) — si se purgara de verdad, la siguiente sincronización
-  /// la resucitaría con todo su historial viejo. Un mensaje genuinamente nuevo (posterior a esta
-  /// fecha) la reactiva automáticamente.
+  /// Borrado suave: al "eliminar" una conversación se oculta en vez de purgarse, así se
+  /// conserva el historial con el socio. Un mensaje nuevo de ese contacto la reactiva sola.
   eliminadaEn     DateTime?
   createdAt       DateTime           @default(now())
   updatedAt       DateTime           @updatedAt
@@ -627,8 +624,7 @@ model Mensaje {
   direccion      DireccionMensaje
   tipo           TipoMensaje      @default(TEXTO)
   contenido      String           @db.Text // texto, o caption/etiqueta legible si es media (ej. "Nota de voz")
-  remoteId       String? // id del mensaje en la plataforma origen — evita duplicar al sincronizar
-  remoteJid      String? // jid tal cual lo usa Evolution (puede ser un "lid"), para re-pedir el media original
+  remoteId       String? // id del mensaje en Meta — evita duplicarlo si el webhook se reintenta
   enviadoEn      DateTime
   createdAt      DateTime         @default(now())
 

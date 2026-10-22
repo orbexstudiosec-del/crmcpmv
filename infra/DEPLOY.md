@@ -8,9 +8,11 @@ Cada empresa tiene su propia instalación: su servidor, su base de datos, su nom
   primera instalación compila las imágenes en el propio servidor; con menos memoria el build
   de la web puede fallar.
 - Puertos 80 y 443 abiertos.
-- Un dominio o subdominio apuntando a la IP del servidor (registro A). Sin dominio el CRM
-  funciona por IP y WhatsApp por código QR también, pero WhatsApp API oficial, Instagram y
-  Messenger exigen HTTPS para sus webhooks.
+- Un dominio o subdominio apuntando a la IP del servidor (registro A). WhatsApp se atiende
+  solo por la API oficial de Meta, que entrega los mensajes entrantes a un webhook con HTTPS
+  alcanzable desde internet (`/api/mensajes/webhook/meta/...`). Sin dominio el CRM funciona
+  por IP, pero no recibe mensajes de WhatsApp.
+- Salida a internet hacia `graph.facebook.com` para enviar mensajes.
 
 ## Instalar
 
@@ -30,8 +32,8 @@ El instalador pregunta:
 | Dominio | HTTPS automático (Let's Encrypt). Vacío = por IP, sin HTTPS |
 | Nombre, correo y contraseña del administrador | Primer usuario, con rol propietario |
 
-Genera las claves (`AUTH_SECRET`, `ENCRYPTION_KEY`, contraseña de Postgres, API key de
-Evolution), escribe `.env` y levanta los servicios. Al terminar borra `ADMIN_PASSWORD` del
+Genera las claves (`AUTH_SECRET`, `ENCRYPTION_KEY` y contraseña de Postgres), escribe
+`.env` y levanta los servicios. Al terminar borra `ADMIN_PASSWORD` del
 `.env`.
 
 **Guarda una copia del `.env` fuera del servidor.** Sin `ENCRYPTION_KEY` no se pueden
@@ -44,9 +46,12 @@ descifrar las credenciales de los canales ya conectados.
 | `caddy` | HTTPS y enrutado: `/api/*` al API, el resto a la web |
 | `web` | Interfaz (Next.js) |
 | `api` | Backend (NestJS). Aplica las migraciones al arrancar |
-| `postgres` | Base `crm` y base `evolution` |
-| `redis` | Caché de Evolution API |
-| `evolution` | WhatsApp por código QR. No está expuesto a internet |
+| `postgres` | Base de datos `crm` |
+
+WhatsApp por código QR (Evolution API) no está autorizado para uso institucional y se retiró.
+Al actualizar una instalación que lo tenía, `./install.sh` retira los contenedores `evolution`
+y `redis`. La base `evolution` y los volúmenes `evolution_instances` y `redisdata` no se
+tocan; se pueden borrar a mano cuando ya no se necesiten.
 
 ## Operación
 

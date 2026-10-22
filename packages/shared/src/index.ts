@@ -288,8 +288,9 @@ export type EstadoCampana = z.infer<typeof estadoCampanaSchema>;
 export const publicoCampanaSchema = z.enum(['CLIENTES', 'LEADS', 'LEADS_FORMULARIO']);
 export type PublicoCampana = z.infer<typeof publicoCampanaSchema>;
 
-/// Solo los dos canales de WhatsApp con envío real cableado a Campañas — no todo canalMensajeriaSchema.
-export const canalWhatsappCampanaSchema = z.enum(['WHATSAPP_QR', 'WHATSAPP_API']);
+/// Canal de envío de las campañas de WhatsApp: solo la API oficial de Meta (el QR no está
+/// autorizado para uso institucional).
+export const canalWhatsappCampanaSchema = z.enum(['WHATSAPP_API']);
 export type CanalWhatsappCampana = z.infer<typeof canalWhatsappCampanaSchema>;
 
 export const campanaInputSchema = z
@@ -297,23 +298,19 @@ export const campanaInputSchema = z
     nombre: z.string().min(1),
     canal: canalCampanaSchema.default('EMAIL'),
     programadaPara: z.string().optional(), // ISO date
-    mensaje: z.string().min(1).optional(), // requerido para WHATSAPP+QR — plantilla, admite {{nombre}}
+    mensaje: z.string().min(1).optional(), // descripción interna; WhatsApp envía la plantilla de Meta
     publico: publicoCampanaSchema.optional(), // requerido para WHATSAPP
     formularioLeadId: z.string().optional(), // requerido si publico = LEADS_FORMULARIO
-    canalWhatsapp: canalWhatsappCampanaSchema.optional(), // default WHATSAPP_QR si no se manda
-    plantillaMeta: z.string().min(1).optional(), // requerido para WHATSAPP+API — nombre exacto aprobado en Meta
+    canalWhatsapp: canalWhatsappCampanaSchema.optional(),
+    plantillaMeta: z.string().min(1).optional(), // requerido para WHATSAPP — nombre exacto aprobado en Meta
     plantillaMetaIdioma: z.string().min(1).optional(),
   })
   .refine((v) => v.canal !== 'WHATSAPP' || !!v.publico, {
     message: 'Las campañas de WhatsApp necesitan un público',
     path: ['publico'],
   })
-  .refine((v) => v.canal !== 'WHATSAPP' || v.canalWhatsapp === 'WHATSAPP_API' || !!v.mensaje, {
-    message: 'Las campañas de WhatsApp QR necesitan un mensaje',
-    path: ['mensaje'],
-  })
-  .refine((v) => v.canal !== 'WHATSAPP' || v.canalWhatsapp !== 'WHATSAPP_API' || !!v.plantillaMeta, {
-    message: 'Las campañas de WhatsApp API necesitan el nombre de la plantilla aprobada en Meta',
+  .refine((v) => v.canal !== 'WHATSAPP' || !!v.plantillaMeta, {
+    message: 'Las campañas de WhatsApp necesitan el nombre de la plantilla aprobada en Meta',
     path: ['plantillaMeta'],
   })
   .refine((v) => v.publico !== 'LEADS_FORMULARIO' || !!v.formularioLeadId, {
@@ -324,24 +321,13 @@ export type CampanaInput = z.infer<typeof campanaInputSchema>;
 
 // ─── Integraciones de mensajería (WhatsApp, Messenger, Instagram, TikTok) ──
 
-export const canalMensajeriaSchema = z.enum(['WHATSAPP_QR', 'WHATSAPP_API', 'MESSENGER', 'INSTAGRAM', 'TIKTOK']);
+/// WhatsApp solo por la API oficial de Meta (WhatsApp Business Platform): la conexión por
+/// código QR no está autorizada para uso institucional y se retiró.
+export const canalMensajeriaSchema = z.enum(['WHATSAPP_API', 'MESSENGER', 'INSTAGRAM', 'TIKTOK']);
 export type CanalMensajeria = z.infer<typeof canalMensajeriaSchema>;
 
 export const estadoIntegracionSchema = z.enum(['DESCONECTADO', 'PENDIENTE', 'CONECTADO', 'ERROR']);
 export type EstadoIntegracion = z.infer<typeof estadoIntegracionSchema>;
-
-/// WhatsApp por código QR vía Evolution API (self-hosted). Los 3 campos son opcionales en el
-/// input: si faltan, el backend completa con EVOLUTION_API_URL/EVOLUTION_API_KEY del servidor
-/// y con un nombre de instancia derivado del organizationId (ver integraciones.service.ts).
-export const credencialesWhatsappQrSchema = z.object({
-  evolutionApiUrl: z.string().url('URL inválida').optional(),
-  evolutionApiKey: z.string().min(1).optional(),
-  instancia: z.string().min(1).optional(),
-});
-export type CredencialesWhatsappQr = z.infer<typeof credencialesWhatsappQrSchema>;
-/// Forma "resuelta": después de que el backend completa lo que faltaba con sus defaults
-/// (EVOLUTION_API_URL/EVOLUTION_API_KEY) e instancia derivada — los 3 campos garantizados.
-export type CredencialesWhatsappQrResueltas = Required<CredencialesWhatsappQr>;
 
 /// WhatsApp Business Platform — API oficial de Meta (Cloud API).
 export const credencialesWhatsappApiSchema = z.object({
@@ -375,7 +361,6 @@ export const credencialesTiktokSchema = z.object({
 export type CredencialesTiktok = z.infer<typeof credencialesTiktokSchema>;
 
 export const conectarIntegracionSchema = z.discriminatedUnion('canal', [
-  z.object({ canal: z.literal('WHATSAPP_QR'), credenciales: credencialesWhatsappQrSchema }),
   z.object({ canal: z.literal('WHATSAPP_API'), credenciales: credencialesWhatsappApiSchema }),
   z.object({ canal: z.literal('MESSENGER'), credenciales: credencialesMessengerSchema }),
   z.object({ canal: z.literal('INSTAGRAM'), credenciales: credencialesInstagramSchema }),
@@ -395,7 +380,6 @@ export type EnviarMensajeInput = z.infer<typeof enviarMensajeSchema>;
 
 export const iniciarConversacionSchema = z.object({
   numero: z.string().min(5).max(20),
-  canal: z.enum(['WHATSAPP_QR', 'WHATSAPP_API']).optional(), // default WHATSAPP_QR si no se manda
 });
 export type IniciarConversacionInput = z.infer<typeof iniciarConversacionSchema>;
 
@@ -444,25 +428,6 @@ export type NotaConversacionInput = z.infer<typeof notaConversacionSchema>;
 
 export const tipoMensajeSchema = z.enum(['TEXTO', 'IMAGEN', 'VIDEO', 'AUDIO', 'STICKER', 'DOCUMENTO']);
 export type TipoMensaje = z.infer<typeof tipoMensajeSchema>;
-
-/// `contenido` va en base64 SIN el prefijo "data:mime;base64,".
-export const enviarAudioSchema = z.object({
-  contenido: z.string().min(1),
-});
-export type EnviarAudioInput = z.infer<typeof enviarAudioSchema>;
-
-export const enviarStickerSchema = z.object({
-  contenido: z.string().min(1),
-});
-export type EnviarStickerInput = z.infer<typeof enviarStickerSchema>;
-
-export const enviarArchivoSchema = z.object({
-  contenido: z.string().min(1),
-  mimetype: z.string().min(1),
-  nombreArchivo: z.string().optional(),
-  caption: z.string().optional(),
-});
-export type EnviarArchivoInput = z.infer<typeof enviarArchivoSchema>;
 
 export const actualizarCampanaSchema = z.object({
   nombre: z.string().min(1).optional(),

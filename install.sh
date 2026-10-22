@@ -4,7 +4,7 @@
 #   ./install.sh
 #
 # Pregunta el nombre del CRM, la empresa, el dominio y el administrador; genera las claves,
-# escribe el .env y levanta todo (web, API, base de datos, Evolution API y HTTPS).
+# escribe el .env y levanta todo (web, API, base de datos y HTTPS).
 # Volver a ejecutarlo sobre una instalación existente la ACTUALIZA sin tocar datos ni claves.
 #
 # Para automatizar, cualquier respuesta se puede pasar como variable de entorno:
@@ -43,7 +43,9 @@ esperar_api() {
 # ── Actualización de una instalación existente ──────────────────
 if [[ -f .env ]]; then
   info "Ya existe una instalación en esta carpeta (.env). Se actualizará conservando datos y claves."
-  docker compose up -d --build
+  # --remove-orphans: retira contenedores de servicios que ya no existen (ej. evolution y redis
+  # de WhatsApp QR, que se quitó).
+  docker compose up -d --build --remove-orphans
   esperar_api || fatal "El API no respondió. Revisa: docker compose logs api"
   printf '%s\n' "${VERDE}Actualización completada.${FIN}"
   exit 0
@@ -128,8 +130,6 @@ TZ='${TZ:-America/Guayaquil}'
 AUTH_SECRET='$(secreto)'
 ENCRYPTION_KEY='$(secreto)'
 POSTGRES_PASSWORD='$(secreto)'
-EVOLUTION_API_KEY='$(secreto)'
-EVOLUTION_IMAGE='${EVOLUTION_IMAGE:-evoapicloud/evolution-api:latest}'
 
 # Correo saliente (opcional). Sin SMTP_HOST los enlaces de restablecer contraseña salen en
 # el log del API: docker compose logs api
@@ -162,7 +162,7 @@ ${VERDE}${NEGRITA}$APP_NAME quedó instalado.${FIN}
 
 Siguientes pasos dentro del sistema:
   - Configuración → Marca: logo y color.
-  - Configuración → Integraciones: conecta WhatsApp (código QR) y los demás canales.
+  - Configuración → Integraciones: conecta WhatsApp Business (API oficial de Meta).
   - Equipo: crea los usuarios de la empresa.
 
 Para actualizar más adelante: descarga la nueva versión en esta carpeta y ejecuta ./install.sh

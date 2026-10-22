@@ -8,8 +8,10 @@ después se cambia (junto con el logo y el color) desde **Configuración → Mar
 
 - **Bandeja de mensajes** unificada con asignación, notas internas, estados y vínculo a
   leads, clientes y etapas del embudo.
-- **WhatsApp por código QR** (Evolution API, incluido en la instalación) y **WhatsApp
-  Business API oficial** (Meta Cloud API).
+- **WhatsApp Business por la API oficial** (Meta Cloud API): texto, botones y listas, y
+  campañas con plantillas aprobadas. La conexión por código QR no está autorizada para uso
+  institucional y se retiró. El envío de adjuntos y notas de voz, y abrir los adjuntos
+  recibidos, todavía no están implementados por la API oficial.
 - **CRM**: leads, oportunidades en Kanban con embudo configurable, actividades, calendario,
   clientes y reportes.
 - **Bots** con editor visual, **campañas** de WhatsApp y **formularios** públicos de
@@ -27,7 +29,7 @@ todavía no reciben ni envían mensajes; los comentarios de redes tampoco están
 - **Web:** Next.js 16 (App Router) + React 19 + Tailwind 4
 - **API:** NestJS 11 (Node 22)
 - **Datos:** PostgreSQL 16 + Prisma
-- **Infra:** Docker Compose + Caddy (HTTPS automático) + Evolution API
+- **Infra:** Docker Compose + Caddy (HTTPS automático)
 
 ```
 apps/

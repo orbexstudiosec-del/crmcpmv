@@ -1,5 +1,5 @@
 /**
- * Cifrado en reposo de las credenciales de los canales (tokens de Meta, API key de Evolution…).
+ * Cifrado en reposo de las credenciales de los canales (tokens de Meta…).
  *
  * Algoritmo: AES-256-GCM (confidencialidad + integridad autenticada).
  * La clave maestra viene de ENCRYPTION_KEY (64 hex = 32 bytes) — la genera el instalador.

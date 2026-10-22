@@ -4,8 +4,8 @@ import { masterKey } from './cifrado';
 /** Secreto de la URL del webhook, derivado del organizationId con la misma clave maestra
  * que cifra las credenciales. No se guarda en BD: se recalcula cada vez, así que es estable
  * sin necesitar una columna extra. Vive en `common` (no en `mensajes` ni en `integraciones`)
- * porque ambos módulos la necesitan: `integraciones` para registrar el webhook automáticamente
- * al conectar, `mensajes` para validar lo que llega. */
+ * porque ambos módulos la necesitan: `integraciones` para mostrar la URL al conectar,
+ * `mensajes` para validar lo que llega. */
 export function webhookSecret(organizationId: string): string {
   return createHmac('sha256', masterKey()).update(organizationId).digest('hex').slice(0, 32);
 }
@@ -29,11 +29,7 @@ export function firmaMetaValida(rawBody: Buffer | undefined, cabecera: string | 
   return igualesEnTiempoConstante(cabecera, esperada);
 }
 
-export function urlWebhookEvolution(organizationId: string, origen: string): string {
-  return `${origen}/api/mensajes/webhook/evolution/${organizationId}/${webhookSecret(organizationId)}`;
-}
-
-/** A diferencia de Evolution, Meta no tiene un endpoint para registrar este callback por API:
+/** Meta no tiene un endpoint para registrar este callback por API:
  * el usuario tiene que pegar esta URL a mano en Meta for Developers → su app → WhatsApp →
  * Configuración → Webhook (ver integraciones.service.ts#conectar). */
 export function urlWebhookMeta(organizationId: string, origen: string): string {

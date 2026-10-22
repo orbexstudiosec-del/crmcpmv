@@ -78,8 +78,7 @@ export async function enviarDocumentoMeta(
 
 /** Suscribe la WABA a los eventos de la app (mensajes entrantes, cambios de estado) — sin
  * esto, aunque el callback URL esté bien configurado en Meta for Developers, Meta nunca
- * empieza a mandarle eventos de ESTA cuenta específica. A diferencia de Evolution, Meta NO
- * permite registrar la URL del webhook por API (eso es manual, en el dashboard de la app) —
+ * empieza a mandarle eventos de ESTA cuenta específica. Meta NO permite registrar la URL del webhook por API (eso es manual, en el dashboard de la app) —
  * esto solo cubre la mitad automatizable. Best-effort: si falla, no rompe la conexión, el
  * envío de mensajes sigue funcionando igual, solo no llegarán entrantes hasta resolverlo. */
 export async function suscribirWebhookMeta(c: CredencialesWhatsappApi): Promise<string | null> {
@@ -105,8 +104,7 @@ export async function suscribirWebhookMeta(c: CredencialesWhatsappApi): Promise<
   }
 }
 
-/** Botones/lista interactivos REALES de WhatsApp (feature oficial de Meta, a diferencia de
- * Evolution/QR donde no hay garantía). Meta permite máximo 3 "reply buttons" tocables — con
+/** Botones/lista interactivos REALES de WhatsApp (feature oficial de Meta). Meta permite máximo 3 "reply buttons" tocables — con
  * más opciones usa el formato "list" (hasta 10 filas), que es el propio mecanismo de Meta
  * para menús largos, no una degradación. */
 export async function enviarBotonesMeta(

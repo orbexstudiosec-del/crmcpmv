@@ -1,6 +1,7 @@
-# Instalación completa en un servidor: CRM (web + API), base de datos, Evolution API para
-# WhatsApp por QR y Caddy con HTTPS automático. No se levanta a mano: `./install.sh` genera
-# el .env (nombre del CRM, dominio, claves) y ejecuta `docker compose up -d --build`.
+# Instalación completa en un servidor: CRM (web + API), base de datos y Caddy con HTTPS
+# automático. WhatsApp va solo por la API oficial de Meta (no hay servicio de WhatsApp QR).
+# No se levanta a mano: `./install.sh` genera el .env (nombre del CRM, dominio, claves) y
+# ejecuta `docker compose up -d --build`.
 
 services:
   postgres:
@@ -12,52 +13,11 @@ services:
       POSTGRES_DB: crm
     volumes:
       - pgdata:/var/lib/postgresql/data
-      # Crea la base aparte que usa Evolution API (solo en el primer arranque del volumen).
-      - ./infra/postgres-init.sql:/docker-entrypoint-initdb.d/10-evolution.sql:ro
     healthcheck:
       test: ['CMD-SHELL', 'pg_isready -U crm -d crm']
       interval: 10s
       timeout: 5s
       retries: 10
-
-  redis:
-    image: redis:7-alpine
-    restart: unless-stopped
-    command: redis-server --appendonly yes
-    volumes:
-      - redisdata:/data
-
-  # WhatsApp por código QR. Solo accesible dentro de la red de Docker: el API le habla por
-  # http://evolution:8080 y Evolution le devuelve los mensajes entrantes a http://api:4000.
-  evolution:
-    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:latest}
-    restart: unless-stopped
-    environment:
-      SERVER_URL: http://evolution:8080
-      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY:?Falta EVOLUTION_API_KEY (ejecuta ./install.sh)}
-      DATABASE_ENABLED: 'true'
-      DATABASE_PROVIDER: postgresql
-      DATABASE_CONNECTION_URI: postgresql://crm:${POSTGRES_PASSWORD}@postgres:5432/evolution?schema=public
-      DATABASE_CONNECTION_CLIENT_NAME: crm
-      DATABASE_SAVE_DATA_INSTANCE: 'true'
-      DATABASE_SAVE_DATA_NEW_MESSAGE: 'true'
-      DATABASE_SAVE_MESSAGE_UPDATE: 'true'
-      DATABASE_SAVE_DATA_CONTACTS: 'true'
-      DATABASE_SAVE_DATA_CHATS: 'true'
-      CACHE_REDIS_ENABLED: 'true'
-      CACHE_REDIS_URI: redis://redis:6379/6
-      CACHE_REDIS_PREFIX_KEY: evolution
-      CACHE_LOCAL_ENABLED: 'false'
-      TZ: ${TZ:-America/Guayaquil}
-    volumes:
-      - evolution_instances:/evolution/instances
-    depends_on:
-      postgres:
-        condition: service_healthy
-      redis:
-        condition: service_started
-    expose:
-      - '8080'
 
   api:
     build:
@@ -67,9 +27,6 @@ services:
     env_file: .env
     environment:
       DATABASE_URL: postgresql://crm:${POSTGRES_PASSWORD}@postgres:5432/crm?schema=public
-      REDIS_URL: redis://redis:6379
-      EVOLUTION_API_URL: http://evolution:8080
-      EVOLUTION_WEBHOOK_BASE: http://api:4000
       API_PORT: '4000'
       # De la zona horaria dependen los cortes de "hoy" del servidor (tareas del día, reportes).
       TZ: ${TZ:-America/Guayaquil}
@@ -79,8 +36,6 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      redis:
-        condition: service_started
     healthcheck:
       test: ['CMD', 'wget', '-qO-', 'http://127.0.0.1:4000/api/health']
       interval: 10s
@@ -125,8 +80,6 @@ services:
 
 volumes:
   pgdata:
-  redisdata:
-  evolution_instances:
   caddydata:
   caddyconfig:
   uploads:

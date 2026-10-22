@@ -1,8 +1,7 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Req, UseGuards } from '@nestjs/common';
-import type { Request } from 'express';
+import { Body, Controller, Delete, Get, Param, Patch, Post, UseGuards } from '@nestjs/common';
 import { MensajesService } from './mensajes.service';
 import {
-  enviarMensajeSchema, iniciarConversacionSchema, enviarAudioSchema, enviarStickerSchema, enviarArchivoSchema,
+  enviarMensajeSchema, iniciarConversacionSchema,
   vincularClienteConversacionSchema, actualizarEtapaConversacionSchema, vincularLeadConversacionSchema,
   actualizarEstadoConversacionSchema, asignarConversacionSchema, notaConversacionSchema, crearLeadConversacionSchema,
   pausarBotConversacionSchema,
@@ -35,8 +34,8 @@ export class MensajesController {
 
   @Post('conversaciones')
   iniciar(@OrgId() orgId: string, @Body() body: unknown) {
-    const { numero, canal } = iniciarConversacionSchema.parse(body);
-    return this.mensajes.iniciarConversacion(orgId, numero, canal ?? 'WHATSAPP_QR');
+    const { numero } = iniciarConversacionSchema.parse(body);
+    return this.mensajes.iniciarConversacion(orgId, numero);
   }
 
   @Delete('conversaciones/:id')
@@ -98,42 +97,8 @@ export class MensajesController {
     return this.mensajes.enviarMensaje(orgId, id, contenido);
   }
 
-  @Post('conversaciones/:id/audio')
-  enviarAudio(@OrgId() orgId: string, @Param('id') id: string, @Body() body: unknown) {
-    const { contenido } = enviarAudioSchema.parse(body);
-    return this.mensajes.enviarAudio(orgId, id, contenido);
-  }
-
-  @Post('conversaciones/:id/sticker')
-  enviarSticker(@OrgId() orgId: string, @Param('id') id: string, @Body() body: unknown) {
-    const { contenido } = enviarStickerSchema.parse(body);
-    return this.mensajes.enviarSticker(orgId, id, contenido);
-  }
-
-  @Post('conversaciones/:id/archivo')
-  enviarArchivo(@OrgId() orgId: string, @Param('id') id: string, @Body() body: unknown) {
-    const datos = enviarArchivoSchema.parse(body);
-    return this.mensajes.enviarArchivo(orgId, id, { contenido: datos.contenido, mimetype: datos.mimetype, nombreArchivo: datos.nombreArchivo, caption: datos.caption });
-  }
-
-  @Get('conversaciones/:id/mensajes/:mensajeId/media')
-  obtenerMedia(@OrgId() orgId: string, @Param('id') id: string, @Param('mensajeId') mensajeId: string) {
-    return this.mensajes.obtenerMedia(orgId, id, mensajeId);
-  }
-
   @Delete('conversaciones/:id/mensajes/:mensajeId')
   eliminarMensaje(@OrgId() orgId: string, @Param('id') id: string, @Param('mensajeId') mensajeId: string) {
     return this.mensajes.eliminarMensaje(orgId, id, mensajeId);
-  }
-
-  @Get('webhook-url')
-  webhookUrl(@OrgId() orgId: string, @Req() req: Request) {
-    const origen = `${req.protocol}://${req.get('host')}`;
-    return { url: this.mensajes.urlWebhook(orgId, origen) };
-  }
-
-  @Post('sincronizar')
-  sincronizar(@OrgId() orgId: string) {
-    return this.mensajes.sincronizarWhatsappQr(orgId);
   }
 }

@@ -4,14 +4,13 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import type { LucideIcon } from "lucide-react";
 import {
-  Send, Plus, RefreshCw, Paperclip, Mic, Square, Sticker as StickerIcon,
+  Send, Plus,
   Search, User, Check, MessageCircle, Facebook, Instagram, Music2, Trash2, UserPlus2, StickyNote, CalendarClock, Bot,
 } from "lucide-react";
 import { AppShell } from "@/components/app-shell";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { EmptyState } from "@/components/crm-widgets";
 import { EmojiPicker } from "@/components/emoji-picker";
-import { MensajeMedia } from "@/components/mensaje-media";
 import { api, leerSesion } from "@/lib/api";
 import { ACENTOS_KPI, pipelineEfectivo, type EtapaPipelineDef } from "@/lib/crm";
 import {
@@ -20,7 +19,7 @@ import {
 } from "@/lib/mensajes";
 
 type TipoMensaje = "TEXTO" | "IMAGEN" | "VIDEO" | "AUDIO" | "STICKER" | "DOCUMENTO";
-type Canal = "WHATSAPP_QR" | "WHATSAPP_API" | "MESSENGER" | "INSTAGRAM" | "TIKTOK";
+type Canal = "WHATSAPP_API" | "MESSENGER" | "INSTAGRAM" | "TIKTOK";
 
 interface Mensaje {
   id: string;
@@ -68,16 +67,13 @@ interface ActividadConv {
 }
 
 const CANAL_LABEL: Record<Canal, string> = {
-  WHATSAPP_QR: "WhatsApp", WHATSAPP_API: "WhatsApp Business", MESSENGER: "Messenger", INSTAGRAM: "Instagram", TIKTOK: "TikTok",
+  WHATSAPP_API: "WhatsApp Business", MESSENGER: "Messenger", INSTAGRAM: "Instagram", TIKTOK: "TikTok",
 };
 const CANAL_ICONO: Record<Canal, LucideIcon> = {
-  // WHATSAPP_QR y WHATSAPP_API son el mismo canal (WhatsApp) para quien mira el avatar — la
-  // diferencia es solo el método de conexión, así que comparten el mismo glifo. Antes usaba
-  // un ícono de código QR, que a 10-16px se ve como ruido borroso en vez de comunicar algo.
-  WHATSAPP_QR: MessageCircle, WHATSAPP_API: MessageCircle, MESSENGER: Facebook, INSTAGRAM: Instagram, TIKTOK: Music2,
+  WHATSAPP_API: MessageCircle, MESSENGER: Facebook, INSTAGRAM: Instagram, TIKTOK: Music2,
 };
 const CANAL_COLOR: Record<Canal, string> = {
-  WHATSAPP_QR: "#25D366", WHATSAPP_API: "#25D366", MESSENGER: "#0084FF", INSTAGRAM: "#E4405F", TIKTOK: "#111827",
+  WHATSAPP_API: "#25D366", MESSENGER: "#0084FF", INSTAGRAM: "#E4405F", TIKTOK: "#111827",
 };
 const PREVIEW_TIPO: Record<Exclude<TipoMensaje, "TEXTO">, string> = {
   IMAGEN: "📷 Foto", VIDEO: "🎥 Video", AUDIO: "🎤 Nota de voz", STICKER: "🩹 Sticker", DOCUMENTO: "📄 Documento",
@@ -103,17 +99,11 @@ function etiquetaDia(iso: string) {
   const s = d.toLocaleDateString("es-EC", { day: "numeric", month: "long", year: d.getFullYear() !== hoy.getFullYear() ? "numeric" : undefined });
   return s.charAt(0).toUpperCase() + s.slice(1);
 }
+const CONTENIDO_GENERICO = new Set(["Imagen", "Video", "Audio", "Nota de voz", "Sticker", "Documento"]);
+
 function previewTexto(m?: Mensaje) {
   if (!m) return null;
   return m.tipo === "TEXTO" ? m.contenido : PREVIEW_TIPO[m.tipo];
-}
-function archivoABase64(file: Blob): Promise<string> {
-  return new Promise((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onloadend = () => resolve(reader.result as string);
-    reader.onerror = reject;
-    reader.readAsDataURL(file);
-  });
 }
 function colorAvatar(seed: string) {
   let hash = 0;
@@ -215,9 +205,6 @@ export default function MensajesPage() {
   const [error, setError] = useState<string | null>(null);
   const [abrirNueva, setAbrirNueva] = useState(false);
   const [numeroNuevo, setNumeroNuevo] = useState("");
-  const [canalNuevaConv, setCanalNuevaConv] = useState<"WHATSAPP_QR" | "WHATSAPP_API">("WHATSAPP_QR");
-  const [sincronizando, setSincronizando] = useState(false);
-  const [grabando, setGrabando] = useState(false);
   const [clientes, setClientes] = useState<ClienteLite[]>([]);
   const [leads, setLeads] = useState<LeadLite[]>([]);
   const [etiquetasEstado, setEtiquetasEstado] = useState<EtiquetasConversacion | null>(null);
@@ -236,7 +223,8 @@ export default function MensajesPage() {
   const [vencimientoActividad, setVencimientoActividad] = useState("");
   const [asuntoActividad, setAsuntoActividad] = useState("");
   const [creandoActividad, setCreandoActividad] = useState(false);
-  const [whatsappConectado, setWhatsappConectado] = useState<{ qr: boolean; api: boolean } | null>(null);
+  /** ¿WhatsApp Business (API oficial) conectado? null = todavía no se sabe. */
+  const [whatsappConectado, setWhatsappConectado] = useState<boolean | null>(null);
   const sesion = leerSesion();
   const hiloRef = useRef<HTMLDivElement>(null);
   const hiloContenidoRef = useRef<HTMLDivElement>(null);
@@ -244,10 +232,6 @@ export default function MensajesPage() {
   const idAnteriorRef = useRef<string | null>(null);
   const seleccionadaRef = useRef<string | null>(null);
   const inputTextoRef = useRef<HTMLInputElement>(null);
-  const archivoInputRef = useRef<HTMLInputElement>(null);
-  const stickerInputRef = useRef<HTMLInputElement>(null);
-  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const gravacionChunksRef = useRef<Blob[]>([]);
 
   useEffect(() => { seleccionadaRef.current = seleccionada; }, [seleccionada]);
 
@@ -255,23 +239,6 @@ export default function MensajesPage() {
   const refrescarDetalle = () => {
     if (!seleccionadaRef.current) return;
     api<ConversacionDetalle>(`/mensajes/conversaciones/${seleccionadaRef.current}`).then(setDetalle).catch(() => {});
-  };
-
-  // `mostrarError=false` para el polling automático de fondo cuando ya hay WhatsApp API (Meta)
-  // conectado y funcionando: si falla el QR (instancia vieja/caída) no tiene sentido interrumpir
-  // con un banner de error mientras el otro canal sigue andando bien. El botón "Sincronizar"
-  // (acción explícita del usuario) siempre avisa si falla.
-  const sincronizar = async (mostrarError = true) => {
-    setSincronizando(true);
-    try {
-      await api("/mensajes/sincronizar", { method: "POST" });
-      await cargarConversaciones();
-      refrescarDetalle();
-    } catch (err) {
-      if (mostrarError) setError(err instanceof Error ? err.message : "No se pudo sincronizar");
-    } finally {
-      setSincronizando(false);
-    }
   };
 
   useEffect(() => {
@@ -283,25 +250,14 @@ export default function MensajesPage() {
       .catch(() => {});
     cargarConversaciones();
 
-    let t: ReturnType<typeof setInterval> | undefined;
     api<{ canal: string; estado: string }[]>("/integraciones")
-      .then((r) => {
-        const qr = r.find((i) => i.canal === "WHATSAPP_QR")?.estado === "CONECTADO";
-        const apiOficial = r.find((i) => i.canal === "WHATSAPP_API")?.estado === "CONECTADO";
-        setWhatsappConectado({ qr, api: apiOficial });
-        // Evolution (QR) no siempre tiene un webhook alcanzable (ej. desarrollo local), así
-        // que se trae el historial periódicamente en vez de esperar a que lo empuje. WHATSAPP_API
-        // no tiene equivalente a "traer historial" — todo le llega por su propio webhook, así
-        // que este polling no aplica y no debe correr (ni fallar) cuando solo esa está conectada.
-        if (qr) {
-          sincronizar(!apiOficial);
-          t = setInterval(() => sincronizar(!apiOficial), 15000);
-        }
-      })
+      .then((r) => setWhatsappConectado(r.find((i) => i.canal === "WHATSAPP_API")?.estado === "CONECTADO"))
       .catch(() => {});
 
-    return () => { if (t) clearInterval(t); };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    // Los mensajes entrantes los guarda el webhook de Meta en el servidor: la lista se refresca
+    // sola para que aparezcan sin recargar la página.
+    const t = setInterval(cargarConversaciones, 15000);
+    return () => clearInterval(t);
   }, []);
 
   const cargarActividadesConv = (conversacionId: string) =>
@@ -380,80 +336,6 @@ export default function MensajesPage() {
   function insertarEmoji(emoji: string) {
     setNuevoTexto((t) => t + emoji);
     inputTextoRef.current?.focus();
-  }
-
-  async function onArchivoSeleccionado(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !seleccionada) return;
-    setError(null);
-    setEnviando(true);
-    try {
-      const contenido = await archivoABase64(file);
-      await api(`/mensajes/conversaciones/${seleccionada}/archivo`, {
-        method: "POST",
-        body: JSON.stringify({ contenido, mimetype: file.type || "application/octet-stream", nombreArchivo: file.name }),
-      });
-      refrescarDetalle();
-      cargarConversaciones();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo enviar el archivo");
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  async function onStickerSeleccionado(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file || !seleccionada) return;
-    setError(null);
-    setEnviando(true);
-    try {
-      const contenido = await archivoABase64(file);
-      await api(`/mensajes/conversaciones/${seleccionada}/sticker`, { method: "POST", body: JSON.stringify({ contenido }) });
-      refrescarDetalle();
-      cargarConversaciones();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "No se pudo enviar el sticker");
-    } finally {
-      setEnviando(false);
-    }
-  }
-
-  async function alternarGrabacion() {
-    if (grabando) {
-      mediaRecorderRef.current?.stop();
-      setGrabando(false);
-      return;
-    }
-    if (!seleccionada) return;
-    try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mr = new MediaRecorder(stream);
-      gravacionChunksRef.current = [];
-      mr.ondataavailable = (ev) => { if (ev.data.size > 0) gravacionChunksRef.current.push(ev.data); };
-      mr.onstop = async () => {
-        stream.getTracks().forEach((t) => t.stop());
-        const blob = new Blob(gravacionChunksRef.current, { type: mr.mimeType || "audio/webm" });
-        setEnviando(true);
-        try {
-          const contenido = await archivoABase64(blob);
-          await api(`/mensajes/conversaciones/${seleccionada}/audio`, { method: "POST", body: JSON.stringify({ contenido }) });
-          refrescarDetalle();
-          cargarConversaciones();
-        } catch (err) {
-          setError(err instanceof Error ? err.message : "No se pudo enviar la nota de voz");
-        } finally {
-          setEnviando(false);
-        }
-      };
-      mr.start();
-      mediaRecorderRef.current = mr;
-      setGrabando(true);
-    } catch {
-      setError("No se pudo acceder al micrófono. Revisa los permisos del navegador.");
-    }
   }
 
   async function eliminarMensaje(mensajeId: string) {
@@ -646,11 +528,8 @@ export default function MensajesPage() {
   async function iniciarConversacion(e: React.FormEvent) {
     e.preventDefault();
     if (!numeroNuevo.trim()) return;
-    // Si solo hay un canal conectado, se usa ese sin preguntar — el selector solo aparece
-    // cuando de verdad hay que elegir entre los dos.
-    const canal = whatsappConectado?.qr && whatsappConectado?.api ? canalNuevaConv : whatsappConectado?.api ? "WHATSAPP_API" : "WHATSAPP_QR";
     try {
-      const c = await api<Conversacion>("/mensajes/conversaciones", { method: "POST", body: JSON.stringify({ numero: numeroNuevo.trim(), canal }) });
+      const c = await api<Conversacion>("/mensajes/conversaciones", { method: "POST", body: JSON.stringify({ numero: numeroNuevo.trim() }) });
       setAbrirNueva(false);
       setNumeroNuevo("");
       await cargarConversaciones();
@@ -683,29 +562,15 @@ export default function MensajesPage() {
           <p className="mt-1 text-sm text-muted">Inbox unificado de tus canales conectados.</p>
         </div>
         <div className="flex items-center gap-2">
-          {whatsappConectado?.qr && (
-            <button
-              onClick={() => sincronizar()}
-              disabled={sincronizando}
-              className="flex items-center gap-1.5 rounded-lg border border-border px-3 py-2 text-xs font-medium text-muted transition hover:bg-surface hover:text-foreground disabled:opacity-50"
-            >
-              <RefreshCw size={13} className={sincronizando ? "animate-spin" : ""} /> Sincronizar
-            </button>
-          )}
           <button onClick={() => setAbrirNueva(!abrirNueva)} className="btn-primary px-4 py-2 text-sm">
             <Plus size={14} /> Nueva conversación
           </button>
         </div>
       </div>
 
-      {whatsappConectado && !whatsappConectado.qr && whatsappConectado.api && (
-        <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
-          Estás usando WhatsApp API Cloud (Meta) — los mensajes entrantes llegan en tiempo real por webhook, sin necesidad de sincronizar.
-        </p>
-      )}
-      {whatsappConectado && !whatsappConectado.qr && !whatsappConectado.api && (
+      {whatsappConectado === false && (
         <p className="mt-4 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-700 dark:bg-amber-500/10 dark:text-amber-400">
-          No tienes WhatsApp conectado (ni código QR ni API oficial). <Link href="/configuracion" className="font-medium underline underline-offset-2">Ve a Configuración → Integraciones</Link> para conectar uno.
+          No tienes WhatsApp Business (API oficial) conectado. <Link href="/configuracion" className="font-medium underline underline-offset-2">Ve a Configuración → Integraciones</Link> para conectarlo.
         </p>
       )}
 
@@ -720,25 +585,10 @@ export default function MensajesPage() {
               className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
             />
           </label>
-          {whatsappConectado?.qr && whatsappConectado?.api && (
-            <label className="sm:w-52">
-              <span className="mb-1 block text-xs font-medium text-foreground">Canal</span>
-              <select
-                value={canalNuevaConv}
-                onChange={(e) => setCanalNuevaConv(e.target.value as "WHATSAPP_QR" | "WHATSAPP_API")}
-                className="w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm text-foreground outline-none focus:border-primary"
-              >
-                <option value="WHATSAPP_QR">WhatsApp (código QR)</option>
-                <option value="WHATSAPP_API">WhatsApp Business (API oficial)</option>
-              </select>
-            </label>
-          )}
           <button className="btn-primary px-4 py-2 text-sm">Iniciar</button>
-          {whatsappConectado?.api && (!whatsappConectado.qr || canalNuevaConv === "WHATSAPP_API") && (
-            <p className="w-full text-[11px] text-muted">
-              Nota: por WhatsApp API oficial solo se puede escribir primero a alguien que nunca te escribió si tenés una plantilla aprobada — un mensaje de texto libre a un contacto nuevo puede ser rechazado por Meta.
-            </p>
-          )}
+          <p className="w-full text-[11px] text-muted">
+            Nota: por la API oficial solo se puede escribir primero a alguien que no te escribió en las últimas 24 h con una plantilla aprobada — un texto libre puede ser rechazado por Meta.
+          </p>
         </form>
       )}
 
@@ -1154,7 +1004,10 @@ export default function MensajesPage() {
                             {m.tipo === "TEXTO" ? (
                               <p className="whitespace-pre-wrap break-words">{m.contenido}</p>
                             ) : (
-                              <MensajeMedia conversacionId={detalle.id} mensajeId={m.id} tipo={m.tipo} contenido={m.contenido} />
+                              <p className="whitespace-pre-wrap break-words" title="Adjunto de WhatsApp — todavía no se puede abrir desde el CRM">
+                                <span className="opacity-80">{PREVIEW_TIPO[m.tipo]}</span>
+                                {!CONTENIDO_GENERICO.has(m.contenido) && ` · ${m.contenido}`}
+                              </p>
                             )}
                             <p className={`mt-1 flex items-center justify-end gap-1 text-[10px] ${saliente ? "text-white/70" : "text-muted"}`}>
                               {hora(m.enviadoEn)}
@@ -1178,27 +1031,7 @@ export default function MensajesPage() {
                 </div>
               </div>
               <form onSubmit={enviar} className="flex items-center gap-1.5 border-t border-border p-3">
-                <input ref={archivoInputRef} type="file" className="hidden" onChange={onArchivoSeleccionado} />
-                <input ref={stickerInputRef} type="file" accept="image/*" className="hidden" onChange={onStickerSeleccionado} />
                 <div className="flex flex-1 items-center gap-1 rounded-full border border-border bg-surface px-1.5 py-1">
-                  <button
-                    type="button"
-                    onClick={() => archivoInputRef.current?.click()}
-                    disabled={enviando}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-card hover:text-foreground disabled:opacity-50"
-                    title="Adjuntar imagen, video o documento"
-                  >
-                    <Paperclip size={16} />
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => stickerInputRef.current?.click()}
-                    disabled={enviando}
-                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-muted transition hover:bg-card hover:text-foreground disabled:opacity-50"
-                    title="Enviar sticker"
-                  >
-                    <StickerIcon size={16} />
-                  </button>
                   <EmojiPicker onSelect={insertarEmoji} />
                   <input
                     ref={inputTextoRef}
@@ -1208,23 +1041,9 @@ export default function MensajesPage() {
                     className="min-w-0 flex-1 bg-transparent px-1 text-sm text-foreground outline-none"
                   />
                 </div>
-                {nuevoTexto.trim() ? (
-                  <button disabled={enviando} className="btn-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-50">
-                    <Send size={16} />
-                  </button>
-                ) : (
-                  <button
-                    type="button"
-                    onClick={alternarGrabacion}
-                    disabled={enviando}
-                    className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-0 transition disabled:opacity-50 ${
-                      grabando ? "bg-red-500 text-white" : "btn-primary"
-                    }`}
-                    title={grabando ? "Detener y enviar" : "Grabar nota de voz"}
-                  >
-                    {grabando ? <Square size={14} /> : <Mic size={16} />}
-                  </button>
-                )}
+                <button disabled={enviando || !nuevoTexto.trim()} className="btn-primary flex h-10 w-10 shrink-0 items-center justify-center rounded-full p-0 disabled:opacity-50" title="Enviar">
+                  <Send size={16} />
+                </button>
               </form>
               </>
               )}

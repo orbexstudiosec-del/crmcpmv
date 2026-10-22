@@ -1,17 +1,10 @@
 import { BadRequestException, Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import { PrismaService } from '../prisma/prisma.service';
-import { MensajesService } from '../mensajes/mensajes.service';
 import { IntegracionesService } from '../integraciones/integraciones.service';
 import { enviarPlantillaMeta } from '../integraciones/meta-client';
 import type { CampanaInput, ActualizarCampanaInput, CredencialesWhatsappApi } from '@totalcrm/shared';
 
-const RETRASO_ENTRE_ENVIOS_MS = 1500; // evita ráfagas que Evolution/WhatsApp puedan marcar como spam
-
-/** Reemplaza {{clave}} por su valor en `variables` — si la clave no está, deja el placeholder
- *  tal cual (mejor un {{typo}} visible en el mensaje que perderlo silenciosamente). */
-function interpolarMensaje(plantilla: string, variables: Record<string, string>): string {
-  return plantilla.replace(/\{\{(\w+)\}\}/g, (match, clave: string) => (clave in variables ? variables[clave] : match));
-}
+const RETRASO_ENTRE_ENVIOS_MS = 1500; // evita ráfagas que WhatsApp pueda marcar como spam
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -27,7 +20,6 @@ export class CampanasService implements OnApplicationBootstrap {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly mensajes: MensajesService,
     private readonly integraciones: IntegracionesService,
   ) {}
 
@@ -127,18 +119,15 @@ export class CampanasService implements OnApplicationBootstrap {
       throw new BadRequestException('El formulario que usaba esta campaña como público ya no existe — elige otro público');
     }
 
-    const canalWhatsapp = campana.canalWhatsapp ?? 'WHATSAPP_QR';
-    if (canalWhatsapp === 'WHATSAPP_API' && !campana.plantillaMeta) {
+    // Solo por la API oficial de Meta, que exige una plantilla aprobada para escribirle primero
+    // a un contacto: un texto libre masivo lo rechazaría.
+    if (!campana.plantillaMeta) {
       throw new BadRequestException('Falta el nombre de la plantilla aprobada en Meta');
     }
-    if (canalWhatsapp === 'WHATSAPP_QR' && !campana.mensaje) {
-      throw new BadRequestException('Falta el mensaje de la campaña');
-    }
 
-    const conectado = await this.integraciones.credencialesDescifradas(organizationId, canalWhatsapp);
+    const conectado = await this.integraciones.credencialesDescifradas(organizationId, 'WHATSAPP_API');
     if (!conectado) {
-      const nombreCanal = canalWhatsapp === 'WHATSAPP_API' ? 'WhatsApp (API oficial)' : 'WhatsApp (código QR)';
-      throw new BadRequestException(`Conecta ${nombreCanal} en Configuración antes de enviar campañas.`);
+      throw new BadRequestException('Conecta WhatsApp Business (API oficial) en Configuración antes de enviar campañas.');
     }
 
     const destinatarios = await this.armarDestinatarios(organizationId, campana.publico, campana.formularioLeadId);
@@ -209,17 +198,12 @@ export class CampanasService implements OnApplicationBootstrap {
    *  queda marcado ENVIADO o ERROR (con el motivo) sin que una falla frene al resto del lote. */
   private async procesarEnvio(organizationId: string, campanaId: string): Promise<void> {
     const campana = await this.prisma.campana.findUnique({ where: { id: campanaId } });
-    if (!campana) return;
-    const canalWhatsapp = campana.canalWhatsapp ?? 'WHATSAPP_QR';
-    if (canalWhatsapp === 'WHATSAPP_QR' && !campana.mensaje) return;
-    if (canalWhatsapp === 'WHATSAPP_API' && !campana.plantillaMeta) return;
+    if (!campana?.plantillaMeta) return;
+    const plantilla = campana.plantillaMeta;
 
     // Credenciales de Meta se resuelven una sola vez para todo el lote (no por destinatario).
-    const credencialesMeta =
-      canalWhatsapp === 'WHATSAPP_API'
-        ? ((await this.integraciones.credencialesDescifradas(organizationId, 'WHATSAPP_API')) as CredencialesWhatsappApi | null)
-        : null;
-    if (canalWhatsapp === 'WHATSAPP_API' && !credencialesMeta) return; // se desconectó entre el enviar() y este punto
+    const credencialesMeta = (await this.integraciones.credencialesDescifradas(organizationId, 'WHATSAPP_API')) as CredencialesWhatsappApi | null;
+    if (!credencialesMeta) return; // se desconectó entre el enviar() y este punto
 
     const pendientes = await this.prisma.campanaDestinatario.findMany({ where: { campanaId, estado: 'PENDIENTE' } });
     let enviados = 0;
@@ -228,16 +212,9 @@ export class CampanasService implements OnApplicationBootstrap {
       try {
         const primerNombre = destinatario.nombre.trim().split(/\s+/)[0] || destinatario.nombre;
 
-        if (canalWhatsapp === 'WHATSAPP_API') {
-          // Envío por plantilla oficial de Meta — no pasa por el inbox unificado de Mensajes
-          // (sería un broadcast sin hilo de conversación real; ver nota de alcance en el plan).
-          await enviarPlantillaMeta(credencialesMeta!, destinatario.telefono, campana.plantillaMeta!, campana.plantillaMetaIdioma ?? 'es', [primerNombre]);
-        } else {
-          const variables = { nombre: primerNombre, ...((destinatario.variables as Record<string, string> | null) ?? {}) };
-          const texto = interpolarMensaje(campana.mensaje!, variables);
-          const conversacion = await this.mensajes.iniciarConversacion(organizationId, destinatario.telefono);
-          await this.mensajes.enviarMensaje(organizationId, conversacion.id, texto);
-        }
+        // Envío por plantilla oficial de Meta — no pasa por el inbox unificado de Mensajes
+        // (sería un broadcast sin hilo de conversación real).
+        await enviarPlantillaMeta(credencialesMeta, destinatario.telefono, plantilla, campana.plantillaMetaIdioma ?? 'es', [primerNombre]);
 
         await this.prisma.campanaDestinatario.update({ where: { id: destinatario.id }, data: { estado: 'ENVIADO', enviadoEn: new Date() } });
         enviados++;

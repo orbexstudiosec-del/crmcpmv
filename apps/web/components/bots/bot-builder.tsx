@@ -23,7 +23,6 @@ import { validarNodo, defaultDataFor, nodeId } from "@/lib/bots";
 
 const CANALES: { v: string; l: string }[] = [
   { v: "", l: "Todos los canales" },
-  { v: "WHATSAPP_QR", l: "WhatsApp (QR)" },
   { v: "WHATSAPP_API", l: "WhatsApp Business" },
   { v: "MESSENGER", l: "Messenger" },
   { v: "INSTAGRAM", l: "Instagram" },

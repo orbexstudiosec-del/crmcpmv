@@ -18,11 +18,6 @@ export class IntegracionesController {
     return this.integraciones.listar(orgId);
   }
 
-  @Get('whatsapp-qr/estado')
-  estadoWhatsappQr(@OrgId() orgId: string) {
-    return this.integraciones.estadoWhatsappQr(orgId);
-  }
-
   @Post()
   @Roles('OWNER', 'ADMIN')
   conectar(@OrgId() orgId: string, @Body() body: unknown, @Req() req: Request) {

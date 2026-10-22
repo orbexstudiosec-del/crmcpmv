@@ -28,7 +28,6 @@ interface Plantilla {
 }
 
 const CANAL_LABEL: Record<string, string> = {
-  WHATSAPP_QR: "WhatsApp (QR)",
   WHATSAPP_API: "WhatsApp Business",
   MESSENGER: "Messenger",
   INSTAGRAM: "Instagram",
@@ -241,7 +240,6 @@ export default function BotsPage() {
                 <span className="mb-1 block text-sm font-medium text-foreground">Canal (opcional)</span>
                 <select name="canal" className="w-full rounded-lg border border-border bg-card px-3 py-2 text-sm text-foreground outline-none focus:border-primary">
                   <option value="">Todos los canales</option>
-                  <option value="WHATSAPP_QR">WhatsApp (QR)</option>
                   <option value="WHATSAPP_API">WhatsApp Business</option>
                   <option value="MESSENGER">Messenger</option>
                   <option value="INSTAGRAM">Instagram</option>

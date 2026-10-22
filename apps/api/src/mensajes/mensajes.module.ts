@@ -6,12 +6,11 @@ import { BotEngineModule } from '../bots/engine/bot-engine.module';
 import { MensajesService } from './mensajes.service';
 import { MensajesController } from './mensajes.controller';
 import { MensajesWebhookController } from './mensajes-webhook.controller';
-import { BotPollerService } from './bot-poller.service';
 
 @Module({
   imports: [IntegracionesModule, NotificacionesModule, BotEngineModule],
   controllers: [MensajesController, MensajesWebhookController],
-  providers: [PrismaService, MensajesService, BotPollerService],
+  providers: [PrismaService, MensajesService],
   exports: [MensajesService],
 })
 export class MensajesModule {}
