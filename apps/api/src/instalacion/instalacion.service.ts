@@ -2,6 +2,7 @@ import { Injectable, Logger, OnApplicationBootstrap } from '@nestjs/common';
 import * as bcrypt from 'bcryptjs';
 import { PrismaService } from '../prisma/prisma.service';
 import { nombreMarcaInicial } from '../marca/marca.service';
+import { CATEGORIAS_INICIALES } from '../cronopost/categorias-iniciales';
 
 /** Primera puesta en marcha. Cada instalación es de UNA empresa: no hay registro público, así
  * que la empresa y su administrador se crean aquí, una sola vez, con los datos que el
@@ -39,6 +40,7 @@ export class InstalacionService implements OnApplicationBootstrap {
       data: {
         slug: 'principal',
         nombre: empresa,
+        categoriasCronopost: { create: CATEGORIAS_INICIALES },
         memberships: {
           create: {
             rol: 'OWNER',

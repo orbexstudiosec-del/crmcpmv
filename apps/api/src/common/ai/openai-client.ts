@@ -1,38 +1,65 @@
 import { BadRequestException } from '@nestjs/common';
 
-const API_URL = 'https://api.openai.com/v1/chat/completions';
+/** OPENAI_BASE_URL permite apuntar a un proxy o gateway interno compatible (o a Azure OpenAI)
+ *  en vez de salir directo a api.openai.com. Solo se define en el servidor: si se pudiera cambiar
+ *  desde la pantalla, se podría dirigir la API key (y las peticiones del servidor) a cualquier lado. */
+const baseUrl = () => (process.env.OPENAI_BASE_URL || 'https://api.openai.com/v1').replace(/\/+$/, '');
+const apiUrl = () => `${baseUrl()}/chat/completions`;
 
-function apiKeyOrThrow(): string {
-  const apiKey = process.env.OPENAI_API_KEY;
-  if (!apiKey) {
-    throw new BadRequestException('La interpretación con IA no está configurada en este servidor (falta OPENAI_API_KEY).');
+/** API key y modelo ya resueltos (los de Configuración o, si no hay, los del servidor). Ver
+ *  IaService.credenciales. */
+export interface CredencialesIA {
+  apiKey: string;
+  modelo: string;
+}
+
+/** Comprueba que la API key y el modelo funcionan con una petición mínima (unos pocos tokens).
+ *  Devuelve un mensaje legible si falla, para mostrarlo en Configuración. */
+export async function probarCredencialesIA(c: CredencialesIA): Promise<{ ok: true } | { ok: false; motivo: string }> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20_000);
+  try {
+    const res = await fetch(apiUrl(), {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${c.apiKey}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ model: c.modelo, messages: [{ role: 'user', content: 'Responde solo: OK' }], max_completion_tokens: 5 }),
+      signal: controller.signal,
+    });
+    if (res.ok) return { ok: true };
+    if (res.status === 401) return { ok: false, motivo: 'OpenAI rechazó la API key (inválida o revocada).' };
+    if (res.status === 404) return { ok: false, motivo: `El modelo "${c.modelo}" no existe o tu cuenta no tiene acceso a él.` };
+    if (res.status === 429) return { ok: false, motivo: 'La cuenta de OpenAI no tiene saldo o superó su límite de uso.' };
+    const detalle = await res.text().catch(() => '');
+    return { ok: false, motivo: `El servicio de IA respondió ${res.status}: ${detalle.slice(0, 200)}` };
+  } catch {
+    return { ok: false, motivo: 'No se pudo contactar el servicio de IA (sin conexión o tiempo de espera agotado).' };
+  } finally {
+    clearTimeout(timer);
   }
-  return apiKey;
 }
 
 /** Llamada genérica a Chat Completions con Structured Outputs (json_schema) — transporte
- *  compartido por todos los usos de IA de un solo turno (mapeo de columnas, recomendaciones de
- *  cartera, resumen ejecutivo de gerencia). Cada llamador valida la forma de la respuesta a su
- *  manera antes de confiar en ella. */
+ *  compartido por todos los usos de IA de un solo turno. Cada llamador valida la forma de la
+ *  respuesta a su manera antes de confiar en ella. */
 export async function llamarChatJSON(params: {
+  credenciales: CredencialesIA;
   system: string;
   user: string;
   schemaName: string;
   schema: object;
   timeoutMs: number;
 }): Promise<Record<string, unknown>> {
-  const apiKey = apiKeyOrThrow();
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const { apiKey, modelo } = params.credenciales;
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), params.timeoutMs);
   let res: Response;
   try {
-    res = await fetch(API_URL, {
+    res = await fetch(apiUrl(), {
       method: 'POST',
       headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model,
+        model: modelo,
         messages: [
           { role: 'system', content: params.system },
           { role: 'user', content: params.user },
@@ -49,6 +76,8 @@ export async function llamarChatJSON(params: {
   }
 
   if (!res.ok) {
+    if (res.status === 401) throw new BadRequestException('OpenAI rechazó la API key. Un administrador debe revisarla en Configuración → Inteligencia artificial.');
+    if (res.status === 429) throw new BadRequestException('La cuenta de OpenAI no tiene saldo o superó su límite de uso.');
     const detalle = await res.text().catch(() => '');
     throw new BadRequestException(`El servicio de IA respondió ${res.status}: ${detalle.slice(0, 300)}`);
   }
@@ -83,6 +112,7 @@ interface MensajeChatIA {
  *  contra la base de datos libremente) y el resultado se le devuelve al modelo hasta que
  *  responda con texto final. Corta a `maxIteraciones` para no encadenar llamadas sin fin. */
 export async function llamarChatConHerramientas(params: {
+  credenciales: CredencialesIA;
   system: string;
   historial: { role: 'user' | 'assistant'; content: string }[];
   tools: HerramientaChatIA[];
@@ -90,8 +120,7 @@ export async function llamarChatConHerramientas(params: {
   timeoutMs: number;
   maxIteraciones?: number;
 }): Promise<{ respuesta: string; herramientasUsadas: { nombre: string; args: Record<string, unknown> }[] }> {
-  const apiKey = apiKeyOrThrow();
-  const model = process.env.OPENAI_MODEL || 'gpt-4o-mini';
+  const { apiKey, modelo } = params.credenciales;
   const maxIteraciones = params.maxIteraciones ?? 4;
 
   const messages: MensajeChatIA[] = [
@@ -105,11 +134,11 @@ export async function llamarChatConHerramientas(params: {
     const timer = setTimeout(() => controller.abort(), params.timeoutMs);
     let res: Response;
     try {
-      res = await fetch(API_URL, {
+      res = await fetch(apiUrl(), {
         method: 'POST',
         headers: { Authorization: `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          model,
+          model: modelo,
           messages,
           tools: params.tools.map((t) => ({ type: 'function', function: t })),
           tool_choice: 'auto',

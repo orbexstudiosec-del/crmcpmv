@@ -16,10 +16,12 @@ import { BotsModule } from './bots/bots.module';
 import { NotificacionesModule } from './notificaciones/notificaciones.module';
 import { MarcaModule } from './marca/marca.module';
 import { RiesgosModule } from './riesgos/riesgos.module';
+import { CronopostModule } from './cronopost/cronopost.module';
+import { IaModule } from './ia/ia.module';
 import { InstalacionService } from './instalacion/instalacion.service';
 
 @Module({
-  imports: [ScheduleModule.forRoot(), AuthModule, CrmModule, EquipoModule, PipelineModule, FormulariosLeadModule, CampanasModule, OrganizacionModule, IntegracionesModule, MensajesModule, BotsModule, NotificacionesModule, MarcaModule, RiesgosModule],
+  imports: [ScheduleModule.forRoot(), AuthModule, CrmModule, EquipoModule, PipelineModule, FormulariosLeadModule, CampanasModule, OrganizacionModule, IntegracionesModule, MensajesModule, BotsModule, NotificacionesModule, MarcaModule, RiesgosModule, CronopostModule, IaModule],
   controllers: [HealthController],
   providers: [PrismaService, InstalacionService, RateLimitGuard],
   exports: [PrismaService],

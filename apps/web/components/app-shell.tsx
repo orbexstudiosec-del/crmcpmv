@@ -7,6 +7,7 @@ import type { LucideIcon } from "lucide-react";
 import {
   Home, LogOut, UserPlus, Workflow, ListChecks, Search, Bell, Calendar, Megaphone, Settings, Bot,
   ChevronLeft, ChevronRight, Check, ClipboardList, MessageSquare, BarChart3, Users, UsersRound, Route, ShieldCheck,
+  CalendarRange,
 } from "lucide-react";
 import { api, actualizarSesion, cerrarSesion, leerSesion, EVENTO_SESION, type Sesion } from "@/lib/api";
 import { useMarca, ICONO, LOGO_BLANCO } from "@/lib/marca";
@@ -19,7 +20,7 @@ const SIDEBAR_ANCHO_COLAPSADO = "5rem"; // w-20
 // Rutas que puede abrir cada rol restringido. Es un filtro de navegación (UX): la seguridad
 // real la dan los guards de rol del backend.
 const RUTAS_AGENTE = ["/dashboard", "/notificaciones", "/mensajes", "/leads", "/oportunidades", "/actividades", "/calendario", "/clientes", "/flujo"];
-const RUTAS_GERENCIA = ["/dashboard", "/notificaciones", "/reportes", "/flujo", "/riesgos"];
+const RUTAS_GERENCIA = ["/dashboard", "/notificaciones", "/reportes", "/flujo", "/riesgos", "/cronopost"];
 // Analista de riesgos: su trabajo es el módulo de Riesgos (y ver prospectos).
 const RUTAS_RIESGOS = ["/dashboard", "/notificaciones", "/flujo", "/riesgos", "/leads"];
 
@@ -149,6 +150,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           {link("/actividades", "Actividades", ListChecks)}
           {link("/calendario", "Calendario", Calendar)}
           {link("/campanas", "Campañas", Megaphone)}
+          {link("/cronopost", "Cronopost", CalendarRange)}
           {link("/bots", "Bots", Bot)}
 
           <Grupo colapsado={colapsado}>General</Grupo>

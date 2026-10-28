@@ -43,6 +43,10 @@ model Organization {
   botFlowRuns       BotFlowRun[]
   notificaciones    Notificacion[]
   analisisRiesgo    AnalisisRiesgo[]
+  publicaciones     Publicacion[]
+  categoriasCronopost CategoriaCronopost[]
+  cronopostConfig   CronopostConfig?
+  configuracionIA   ConfiguracionIA?
 
   @@index([slug])
 }
@@ -135,6 +139,7 @@ model Membership {
   conversacionesAsignadas     Conversacion[]
   actividadesRealizadas       Actividad[]
   analisisRiesgo              AnalisisRiesgo[]
+  publicacionesACargo         Publicacion[]
 
   @@unique([userId, organizationId])
   @@index([organizationId])
@@ -747,3 +752,129 @@ enum TipoEsperaBot {
   AGENDA
 }
 
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  CRONOPOST — CRONOGRAMA DE PUBLICACIONES EN REDES SOCIALES     ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+enum RedSocial {
+  FACEBOOK
+  INSTAGRAM
+  TIKTOK
+  WHATSAPP // estados de WhatsApp o difusión por el canal oficial
+  LINKEDIN
+  YOUTUBE
+  X
+}
+
+/// Formato de la pieza que hay que producir.
+enum TipoPieza {
+  IMAGEN
+  CARRUSEL
+  REEL
+  HISTORIA
+  VIDEO
+  TEXTO
+}
+
+/// Flujo de trabajo de una publicación: de la idea a publicada.
+enum EstadoPublicacion {
+  IDEA
+  DISENO
+  REVISION
+  APROBADO
+  PUBLICADO
+}
+
+/// Una publicación planificada del cronopost. Es planificación interna del equipo de marketing:
+/// el CRM no la publica en las redes, solo organiza qué sale, cuándo, dónde y quién la prepara.
+model Publicacion {
+  id             String            @id @default(cuid())
+  organizationId String
+  /// Fecha y hora programadas de publicación.
+  fecha          DateTime
+  /// Una misma pieza suele salir en varias redes a la vez.
+  redes          RedSocial[]
+  tipo           TipoPieza         @default(IMAGEN)
+  /// Tema o título corto (lo que se ve en el calendario).
+  tema           String
+  copy           String?           @db.Text
+  hashtags       String?
+  estado         EstadoPublicacion @default(IDEA)
+  responsableId  String?
+  categoriaId    String?
+  notas          String?           @db.Text
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  organization Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  responsable  Membership?         @relation(fields: [responsableId], references: [id], onDelete: SetNull)
+  categoria    CategoriaCronopost? @relation(fields: [categoriaId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, fecha])
+  @@index([responsableId])
+  @@index([categoriaId])
+}
+
+/// Categoría temática de las publicaciones (ej. Crédito, Inversiones, Seguridad). La lista la
+/// configura cada organización; la descripción orienta a la IA sobre qué cubre cada una.
+model CategoriaCronopost {
+  id             String   @id @default(cuid())
+  organizationId String
+  nombre         String
+  color          String   @default("#2a78d6")
+  descripcion    String?
+  orden          Int      @default(0)
+  createdAt      DateTime @default(now())
+
+  organization  Organization  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  publicaciones Publicacion[]
+
+  @@unique([organizationId, nombre])
+  @@index([organizationId])
+}
+
+/// Configuración de la IA del cronopost (una por organización): la voz de la marca y las reglas
+/// con las que la IA propone copies y arma el plan de publicaciones de una semana o un mes.
+model CronopostConfig {
+  id                     String      @id @default(cuid())
+  organizationId         String      @unique
+  descripcion            String?     @db.Text
+  publicoObjetivo        String?     @db.Text
+  productos              String?     @db.Text
+  /// CERCANO | INFORMATIVO | INSPIRADOR | FORMAL (validado en el API).
+  tono                   String      @default("CERCANO")
+  redes                  RedSocial[]
+  publicacionesPorSemana Int         @default(3)
+  /// LUN | MAR | MIE | JUE | VIE | SAB | DOM
+  dias                   String[]
+  /// "HH:MM"
+  horarios               String[]
+  hashtagsFijos          String?
+  /// Qué debe evitar la IA (temas, palabras, promesas).
+  restricciones          String?     @db.Text
+  updatedAt              DateTime    @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}
+
+// ╔══════════════════════════════════════════════════════════════╗
+// ║  INTELIGENCIA ARTIFICIAL — credenciales del proveedor          ║
+// ╚══════════════════════════════════════════════════════════════╝
+
+/// API key de OpenAI que carga un administrador desde Configuración (una por organización). Va
+/// cifrada con AES-256-GCM (ENCRYPTION_KEY), igual que las credenciales de los canales, y nunca se
+/// devuelve al navegador. Si no existe, se usa OPENAI_API_KEY del servidor, si está definida.
+model ConfiguracionIA {
+  id             String   @id @default(cuid())
+  organizationId String   @unique
+  apiKeyCifrada  Bytes
+  apiKeyIv       Bytes
+  apiKeyTag      Bytes
+  /// Últimos 4 caracteres de la clave: para mostrarla enmascarada sin descifrarla.
+  apiKeyFinal    String
+  modelo         String   @default("gpt-4o-mini")
+  updatedAt      DateTime @updatedAt
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+}

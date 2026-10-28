@@ -16,6 +16,13 @@ después se cambia (junto con el logo y el color) desde **Configuración → Mar
   clientes y reportes.
 - **Bots** con editor visual, **campañas** de WhatsApp y **formularios** públicos de
   captación de leads.
+- **Cronopost**: cronograma mensual de publicaciones en redes sociales (fecha y hora,
+  categoría, redes, tipo de pieza, copy, hashtags, estado y responsable) con exportación a
+  Excel. Las **categorías** (Crédito, Inversiones, Seguridad…) son configurables: nombre, color
+  y descripción. Con IA (opcional; la API key de OpenAI se carga en **Configuración →
+  Inteligencia artificial**, cifrada): propuestas de copy y generación del plan completo de una
+  semana o un mes según la configuración del Cronopost (categorías a repartir, voz de la marca,
+  redes, días y horarios). Es planificación: no publica en las redes.
 - **Acceso con el correo institucional**: la cuenta se activa con un enlace enviado al correo
   y cada inicio de sesión pide además un código que llega a ese correo (doble factor).
 - **Equipo** con roles (propietario, administrador, supervisor, agente, riesgos, gerencia).

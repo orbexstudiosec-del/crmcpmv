@@ -6,6 +6,7 @@ import { AppShell } from "@/components/app-shell";
 import { IntegracionCard } from "@/components/integracion-card";
 import { confirmDialog } from "@/components/confirm-dialog";
 import { MarcaCard } from "@/components/marca-card";
+import { IaCard } from "@/components/ia-card";
 import { api, actualizarSesion, leerSesion, type Sesion } from "@/lib/api";
 import { CANALES_MENSAJERIA, type IntegracionEstado } from "@/lib/integraciones";
 import { ESTADOS_CONVERSACION, ESTADO_INFO_DEFAULT, etiquetasEfectivas, type EtiquetasConversacion } from "@/lib/mensajes";
@@ -195,6 +196,7 @@ export default function ConfiguracionPage() {
       {ok && <p className="mt-4 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-700">Cambios guardados.</p>}
 
       <MarcaCard puedeEditar={puedeEditar} />
+      <IaCard puedeEditar={puedeEditar} />
 
       <form onSubmit={guardar}>
         <fieldset disabled={!puedeEditar} className="contents">

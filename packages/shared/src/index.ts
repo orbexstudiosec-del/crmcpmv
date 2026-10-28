@@ -666,3 +666,114 @@ export const analisisRiesgoInputSchema = z.object({
   path: ['observaciones'],
 });
 export type AnalisisRiesgoInput = z.infer<typeof analisisRiesgoInputSchema>;
+
+// ─── Cronopost: cronograma de publicaciones en redes sociales ────
+
+export const redSocialSchema = z.enum(['FACEBOOK', 'INSTAGRAM', 'TIKTOK', 'WHATSAPP', 'LINKEDIN', 'YOUTUBE', 'X']);
+export type RedSocial = z.infer<typeof redSocialSchema>;
+
+export const tipoPiezaSchema = z.enum(['IMAGEN', 'CARRUSEL', 'REEL', 'HISTORIA', 'VIDEO', 'TEXTO']);
+export type TipoPieza = z.infer<typeof tipoPiezaSchema>;
+
+export const estadoPublicacionSchema = z.enum(['IDEA', 'DISENO', 'REVISION', 'APROBADO', 'PUBLICADO']);
+export type EstadoPublicacion = z.infer<typeof estadoPublicacionSchema>;
+
+const fechaHoraSchema = z.string().refine((v) => !Number.isNaN(Date.parse(v)), 'Fecha inválida');
+
+export const publicacionInputSchema = z.object({
+  /// Fecha y hora programadas, en ISO (el navegador la manda ya convertida desde su hora local).
+  fecha: fechaHoraSchema,
+  redes: z.array(redSocialSchema).min(1, 'Elige al menos una red').max(7),
+  tipo: tipoPiezaSchema.default('IMAGEN'),
+  tema: z.string().trim().min(1, 'Falta el tema').max(160),
+  copy: z.string().max(5000).nullish(),
+  hashtags: z.string().max(500).nullish(),
+  estado: estadoPublicacionSchema.default('IDEA'),
+  responsableId: z.string().nullish(),
+  categoriaId: z.string().nullish(),
+  notas: z.string().max(2000).nullish(),
+});
+export type PublicacionInput = z.infer<typeof publicacionInputSchema>;
+
+export const actualizarPublicacionSchema = publicacionInputSchema.partial();
+export type ActualizarPublicacionInput = z.infer<typeof actualizarPublicacionSchema>;
+
+export const listarPublicacionesSchema = z.object({
+  desde: fechaHoraSchema.optional(),
+  hasta: fechaHoraSchema.optional(),
+});
+
+export const tonoCopySchema = z.enum(['CERCANO', 'INFORMATIVO', 'INSPIRADOR', 'FORMAL']);
+export type TonoCopy = z.infer<typeof tonoCopySchema>;
+
+/// Pedido de propuestas de copy a la IA. Solo viaja lo que se escribe aquí (tema y objetivo):
+/// nunca datos de socios ni prospectos.
+export const generarCopySchema = z.object({
+  tema: z.string().trim().min(3, 'Describe el tema con un poco más de detalle').max(300),
+  objetivo: z.string().trim().max(300).optional(),
+  redes: z.array(redSocialSchema).min(1).max(7),
+  tipo: tipoPiezaSchema,
+  tono: tonoCopySchema.default('CERCANO'),
+  /// Categoría de la publicación: su descripción le da contexto a la IA.
+  categoriaId: z.string().optional(),
+});
+export type GenerarCopyInput = z.infer<typeof generarCopySchema>;
+
+export const diaSemanaSchema = z.enum(['LUN', 'MAR', 'MIE', 'JUE', 'VIE', 'SAB', 'DOM']);
+export type DiaSemana = z.infer<typeof diaSemanaSchema>;
+
+/// Configuración de la IA del cronopost: la voz de la marca y las reglas de planificación.
+export const cronopostConfigSchema = z.object({
+  descripcion: z.string().trim().max(1500).nullish(),
+  publicoObjetivo: z.string().trim().max(1000).nullish(),
+  productos: z.string().trim().max(1500).nullish(),
+  tono: tonoCopySchema.default('CERCANO'),
+  redes: z.array(redSocialSchema).min(1, 'Elige al menos una red').max(7),
+  publicacionesPorSemana: z.number().int().min(1).max(14).default(3),
+  dias: z.array(diaSemanaSchema).min(1, 'Elige al menos un día').max(7),
+  horarios: z.array(z.string().regex(/^([01]\d|2[0-3]):[0-5]\d$/, 'Hora inválida (HH:MM)')).min(1, 'Agrega al menos un horario').max(4),
+  hashtagsFijos: z.string().trim().max(300).nullish(),
+  restricciones: z.string().trim().max(1500).nullish(),
+});
+export type CronopostConfigInput = z.infer<typeof cronopostConfigSchema>;
+
+/// Pedido de un plan completo a la IA. `inicio` es una fecha "YYYY-MM-DD": para SEMANA, cualquier
+/// día de esa semana (se toma de lunes a domingo); para MES, cualquier día de ese mes.
+export const generarPlanSchema = z.object({
+  periodo: z.enum(['SEMANA', 'MES']),
+  inicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Fecha inválida'),
+  indicaciones: z.string().trim().max(500).optional(),
+  /// Categorías a repartir en el plan. Omitido o vacío = todas las de la organización.
+  categoriaIds: z.array(z.string()).max(20).optional(),
+});
+export type GenerarPlanInput = z.infer<typeof generarPlanSchema>;
+
+/// Guardar varias publicaciones de una vez (las propuestas del plan que se aceptaron).
+export const lotePublicacionesSchema = z.object({
+  publicaciones: z.array(publicacionInputSchema).min(1).max(40),
+});
+export type LotePublicacionesInput = z.infer<typeof lotePublicacionesSchema>;
+
+// ─── Inteligencia artificial: credenciales del proveedor (OpenAI) ─
+
+/// La API key se carga desde Configuración. `apiKey` vacía u omitida = conservar la guardada (para
+/// cambiar solo el modelo sin volver a pegar la clave).
+export const configuracionIaSchema = z.object({
+  apiKey: z.string().trim().min(20, 'La API key parece incompleta').max(300).regex(/^\S+$/, 'La API key no lleva espacios').optional(),
+  modelo: z.string().trim().min(1).max(60).regex(/^[A-Za-z0-9._:-]+$/, 'Nombre de modelo inválido').default('gpt-4o-mini'),
+});
+export type ConfiguracionIaInput = z.infer<typeof configuracionIaSchema>;
+
+/// Categoría temática del cronopost (ej. Crédito, Inversiones, Seguridad), configurable.
+export const categoriaCronopostSchema = z.object({
+  nombre: z.string().trim().min(1, 'Falta el nombre').max(40),
+  color: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Color inválido (usa #RRGGBB)').default('#2a78d6'),
+  /// Qué cubre la categoría: orienta a la IA al generar contenido de ella.
+  descripcion: z.string().trim().max(200).nullish(),
+});
+export type CategoriaCronopostInput = z.infer<typeof categoriaCronopostSchema>;
+
+export const actualizarCategoriaCronopostSchema = categoriaCronopostSchema.partial().extend({
+  orden: z.number().int().min(0).max(1000).optional(),
+});
+export type ActualizarCategoriaCronopostInput = z.infer<typeof actualizarCategoriaCronopostSchema>;
